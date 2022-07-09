@@ -1,0 +1,47 @@
+/* BLOGPOST STYLING */
+#blog-title, .blog-subtitle, .blog-subsubtitle {
+	width: 100%;
+	font-size: 26px;
+	font-weight: 700;
+	margin-top: 1.5rem;
+	margin-bottom: .8rem;
+}
+
+#blog-date {
+	width: 100%;
+	color: #aaaaaa;
+	margin-bottom: 1.1rem;
+	line-height: 1.5rem;
+}
+
+.blog-subtitle {
+	font-size: 20px;
+	margin-bottom: 0.5rem;
+}
+
+.blog-subsubtitle {
+	font-size: 17px;
+	margin-bottom: 0.5rem;
+}
+
+#blog-content {
+	font-family: 'Fira Sans';
+	width: 100%;
+	font-size: 15px;
+	line-height: 1.5rem;
+}
+.blog-quote {
+	border-left: 3px solid grey;
+	background-color: #EEEEEE;
+	font-style: oblique;
+	padding: 1ch 2ch 1ch 2ch;
+	margin: 1ch 0 1ch 0;
+}
+
+.blog-note {
+	border-left: 3px solid #9090DD;
+	background-color: #EEEEFF;
+	font-style: oblique;
+	padding: 1ch 2ch 1ch 2ch;
+	margin: 1ch 0 1ch 0;
+}
