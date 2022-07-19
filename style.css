@@ -86,7 +86,7 @@ li:before {
 	justify-content: center;
 	align-items: center;
 	width: 100%;
-	max-width: 650px;
+	max-width: 550px;
 	padding: 0vh 1.9rem 10vh 1.7rem;
 }
 #category {
@@ -144,26 +144,26 @@ li:before {
 .paragraph-project {
 	display: block;
 	flex-grow: 1;
-	padding: 1rem;
-	margin: .3rem;
+	padding: .8rem;
+	margin: .2rem;
 	min-width: 220px;
 	width: 40%;
 	border: 1px solid lightgray;
 	border-radius: 5px;
 	transform: translateX(-5px);
-	transition: 0.1s;
+	transition: 0.05s;
 	/* anchor tag shenanigans */
 	font-weight: 400;
 }
 .paragraph-project:hover {
-	transform: translateX(-8px) translateY(-2px);
+	transform: translateX(-7px) translateY(-1px);
 	box-shadow: 5px 5px 10px 0px #DDDDDD;
 	border-color: grey;
 	color: black;
 }
 .paragraph-title {
 	padding-bottom: .5rem;
-	font-size: 1.1rem;
+	/*font-size: 1.1rem;*/
 	font-weight: 700;
 }
 .paragraph-project:hover .paragraph-title {
@@ -173,4 +173,56 @@ li:before {
 .about-title {
 	font-weight: 700;
 	line-height: 1.5rem;
+}
+
+/* BLOGPOST STYLING */
+#blog-title, .blog-subtitle, .blog-subsubtitle {
+	width: 100%;
+	font-size: 26px;
+	font-weight: 700;
+	margin-top: 1.5rem;
+	margin-bottom: .8rem;
+}
+
+#blog-date {
+	width: 100%;
+	color: #aaaaaa;
+	margin-bottom: 1.1rem;
+	line-height: 1.5rem;
+}
+
+.blog-subtitle {
+	font-size: 20px;
+	margin-bottom: 0.5rem;
+}
+
+.blog-subsubtitle {
+	font-size: 17px;
+	margin-bottom: 0.5rem;
+}
+
+#blog-content {
+	font-family: sans-serif;
+	width: 100%;
+	font-size: 15px;
+	line-height: 1.5rem;
+}
+.blog-quote {
+	border-left: 3px solid #9090DD;
+	background-color: #EEEEFF;
+	font-style: oblique;
+	padding: .5ch 1ch .5ch 1ch;
+	margin: 1ch 2ch 1ch 0ch;
+}
+
+.blog-note, .blog-error {
+	border-left: 3px solid #9090DD;
+	background-color: #EEEEFF;
+	padding: 1ch 2ch 1ch 2ch;
+	margin: 1ch 0 1ch 0;
+} 
+
+.blog-error {
+	border-left: 3px solid #DD9090;
+	background-color: #FFEEEE;
 }
