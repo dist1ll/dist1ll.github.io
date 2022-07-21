@@ -1,30 +1,11 @@
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #000000 #FFFFFF;
-}
-*::-webkit-scrollbar {
-  width: 6px;
-}
-
-*::-webkit-scrollbar-track {
-  background: #FFFFFF;
-}
-
-*::-webkit-scrollbar-thumb {
-  background-color: #000000;
-  border-radius: 20px;
-  border: 1px solid #FFFFFF;
-}
-
 body {
 	background-color: #fcfcfa;
-}
-
-#app {
 	font-family: sans-serif;
+}
+#app {
+	display: flex;
 	justify-content: center;
 	align-items: center;
-	display: flex;
 	line-height: 1.4rem;
 	overflow: hidden;
 	font-weight: 400;
@@ -103,21 +84,6 @@ li:before {
 	padding: 0rem 0 3rem 0;
 	text-align: left;
 }
-#topcat {
-	display: flex;
-	justify-content: space-around;
-	flex-direction: row;
-	flex-wrap: wrap;
-	width: 100%;
-	padding: 2rem 0 2rem 0;
-}
-#subcat {
-	text-align: center;
-	display: flex;
-	flex-direction: column;
-	padding: 0;
-	width: 200px;
-}
 #category-divider {
 	background-color: #E0E0E0;
 	min-height: 1px;
@@ -157,7 +123,6 @@ li:before {
 	border-radius: 5px;
 	transform: translateX(-5px);
 	transition: 0.05s;
-	/* anchor tag shenanigans */
 	font-weight: 400;
 }
 .paragraph-project:hover {
@@ -168,18 +133,11 @@ li:before {
 }
 .paragraph-title {
 	padding-bottom: .5rem;
-	/*font-size: 1.1rem;*/
 	font-weight: 700;
 }
 .paragraph-project:hover .paragraph-title {
 	color: #e600b4;
 }
-
-.about-title {
-	font-weight: 700;
-	line-height: 1.5rem;
-}
-
 /* BLOGPOST STYLING */
 #blog-title, .blog-subtitle, .blog-subsubtitle {
 	width: 100%;
@@ -188,24 +146,35 @@ li:before {
 	margin-top: 1.5rem;
 	margin-bottom: .8rem;
 }
-
+#blog-title {
+	margin-top: 0.5rem;
+}
+.backlink {
+	display: flex;
+	width: 100%;
+}
+.backlink a {
+	font-size: .9rem;
+	color: #aaaaaa;
+	margin-top: .5rem;
+}
+.backlink a:hover {
+	color:  black;
+}
 #blog-date {
 	width: 100%;
 	color: #aaaaaa;
 	margin-bottom: 1.1rem;
 	line-height: 1.5rem;
 }
-
 .blog-subtitle {
 	font-size: 20px;
 	margin-bottom: 0.5rem;
 }
-
 .blog-subsubtitle {
 	font-size: 17px;
 	margin-bottom: 0.5rem;
 }
-
 #blog-content {
 	font-family: sans-serif;
 	width: 100%;
@@ -219,14 +188,12 @@ li:before {
 	padding: .5ch 1ch .5ch 1ch;
 	margin: 1ch 2ch 1ch 0ch;
 }
-
 .blog-note, .blog-error {
 	border-left: 3px solid #9090DD;
 	background-color: #EEEEFF;
 	padding: 1ch 2ch 1ch 2ch;
 	margin: 1ch 0 1ch 0;
 } 
-
 .blog-error {
 	border-left: 3px solid #DD9090;
 	background-color: #FFEEEE;
