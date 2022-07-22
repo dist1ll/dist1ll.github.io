@@ -1,5 +1,5 @@
 body {
-	background-color: #fcfcfa;
+	background-color: #f8f8f5;
 	font-family: sans-serif;
 }
 #app {
@@ -18,12 +18,12 @@ a {
 }
 h1 {
 	display: inline;
-	font-family: monospace;
 	font-weight: 700;
 	font-size: 2.2rem;
 	margin-bottom: 0;
 	line-height: 1.6ch;
 	min-width: 12ch;
+	color: #2ea32e;
 }
 a:visited { text-decoration: none; }
 a:hover { text-decoration: none; color:#e600b4; }
@@ -58,14 +58,15 @@ li:before {
 	display: flex;
 	justify-content: flex-start;
 	align-items: center;
+	margin-top: .8rem;
 }
 #contacts a {
 	color: #B0B0B0;
 	margin: 0 1rem 0 0;
 	font-weight: 400;
-	font-size: 15px;
+	font-size: 1rem;
 }
-#contacts a:hover { text-decoration: none; color:#3e82f7; }
+#contacts a:hover { text-decoration: none; color:#2ea32e; }
 #content {
 	display: flex;
 	flex-direction: column;
@@ -73,7 +74,7 @@ li:before {
 	align-items: center;
 	width: 100%;
 	max-width: 550px;
-	padding: 0vh 1.9rem 10vh 1.7rem;
+	padding: 0vh 1.5rem 0 1.3rem;
 }
 #category {
 	display: flex;
@@ -81,7 +82,7 @@ li:before {
 	flex-wrap: wrap;
 	justify-content: space-between;
 	width: 100%;
-	padding: 0rem 0 3rem 0;
+	padding: 0rem 0 1rem 0;
 	text-align: left;
 }
 #category-divider {
@@ -91,7 +92,7 @@ li:before {
 	width: 100%;
 }
 #category-title {
-	font-size: clamp(1.4rem, 1.5429rem + -0.7143vw, 1.2rem);
+	font-size: 1.1rem;
 	font-weight: 700;
 	width: 200px;
 	text-decoration: none;
@@ -110,7 +111,6 @@ li:before {
 	flex-wrap: wrap;
 	justify-content: space-between;
 	width: calc(100% + .6rem);
-	margin-bottom: 1.5rem;
 }
 .paragraph-project {
 	display: block;
@@ -136,7 +136,7 @@ li:before {
 	font-weight: 700;
 }
 .paragraph-project:hover .paragraph-title {
-	color: #e600b4;
+	color: #2ea32e;
 }
 /* BLOGPOST STYLING */
 #blog-title, .blog-subtitle, .blog-subsubtitle {
