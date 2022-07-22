@@ -18,11 +18,11 @@ a {
 }
 h1 {
 	display: inline;
-	font-weight: 700;
-	font-size: 2.2rem;
+	font-weight: 800;
+	font-size: 1.8rem;
 	margin-bottom: 0;
 	line-height: 1.6ch;
-	min-width: 12ch;
+	min-width: 10ch;
 	color: #2ea32e;
 }
 a:visited { text-decoration: none; }
@@ -58,7 +58,7 @@ li:before {
 	display: flex;
 	justify-content: flex-start;
 	align-items: center;
-	margin-top: .8rem;
+	margin-top: .4rem;
 }
 #contacts a {
 	color: #B0B0B0;
@@ -82,7 +82,7 @@ li:before {
 	flex-wrap: wrap;
 	justify-content: space-between;
 	width: 100%;
-	padding: 0rem 0 1rem 0;
+	padding: 0rem 0 2rem 0;
 	text-align: left;
 }
 #category-divider {
