@@ -1,6 +1,7 @@
 body {
-	background-color: #f8f8f5;
-	font-family: sans-serif;
+	background-color: #f9f9f7;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+  font-size: .9rem;
 }
 #app {
 	display: flex;
@@ -12,9 +13,9 @@ body {
 	text-align: left;
 }
 a {
-	color: black;
+	color: #2ea32e;
 	font-weight: 700;
-	text-decoration: none;
+	text-decoration: underline;
 }
 h1 {
 	display: inline;
@@ -26,9 +27,9 @@ h1 {
 	color: #2ea32e;
 }
 a:visited { text-decoration: none; }
-a:hover { text-decoration: none; color:#e600b4; }
-a:focus { text-decoration: none; color:#e600b4; }
-a:active { text-decoration: none; color:black }
+a:hover { color:#258025; }
+a:focus { color:#258025; }
+a:active { color:#134013; }
 ul {
   list-style: none;
   margin-left: 0;
@@ -65,8 +66,9 @@ li:before {
 	margin: 0 1rem 0 0;
 	font-weight: 400;
 	font-size: 1rem;
+	text-decoration: none;
 }
-#contacts a:hover { text-decoration: none; color:#2ea32e; }
+#contacts a:hover { text-decoration: underline; color:#2ea32e; }
 #content {
 	display: flex;
 	flex-direction: column;
@@ -98,14 +100,12 @@ li:before {
 	text-decoration: none;
 }
 #category-content {
-	font-size: 14px;
 }
 #paragraph {
 	padding-bottom: 2.5rem;
 }
 /* Projects  */
 #project-container {
-	font-size: 14px;
 	display: flex;
 	flex-direction: row;
 	flex-wrap: wrap;
@@ -113,6 +113,8 @@ li:before {
 	width: calc(100% + .6rem);
 }
 .paragraph-project {
+	color: black;
+	text-decoration: none;
 	display: block;
 	flex-grow: 1;
 	padding: .8rem;
@@ -138,63 +140,16 @@ li:before {
 .paragraph-project:hover .paragraph-title {
 	color: #2ea32e;
 }
-/* BLOGPOST STYLING */
-#blog-title, .blog-subtitle, .blog-subsubtitle {
-	width: 100%;
-	font-size: 26px;
-	font-weight: 700;
-	margin-top: 1.5rem;
-	margin-bottom: .8rem;
+.blog-date {
+	color: #808080;
+	line-height: 1.5rem;
+	font-size: .8rem;
+	margin-right: 1rem;
+	min-width: 8ch;
+	align-self: flex-start;
+	text-align: right;
+	font-family: monospace;
 }
-#blog-title {
-	margin-top: 0.5rem;
-}
-.backlink {
+.blog-short{
 	display: flex;
-	width: 100%;
-}
-.backlink a {
-	font-size: .9rem;
-	color: #aaaaaa;
-	margin-top: .5rem;
-}
-.backlink a:hover {
-	color:  black;
-}
-#blog-date {
-	width: 100%;
-	color: #aaaaaa;
-	margin-bottom: 1.1rem;
-	line-height: 1.5rem;
-}
-.blog-subtitle {
-	font-size: 20px;
-	margin-bottom: 0.5rem;
-}
-.blog-subsubtitle {
-	font-size: 17px;
-	margin-bottom: 0.5rem;
-}
-#blog-content {
-	font-family: sans-serif;
-	width: 100%;
-	font-size: 15px;
-	line-height: 1.5rem;
-}
-.blog-quote {
-	border-left: 3px solid #9090DD;
-	background-color: #EEEEFF;
-	font-style: oblique;
-	padding: .5ch 1ch .5ch 1ch;
-	margin: 1ch 2ch 1ch 0ch;
-}
-.blog-note, .blog-error {
-	border-left: 3px solid #9090DD;
-	background-color: #EEEEFF;
-	padding: 1ch 2ch 1ch 2ch;
-	margin: 1ch 0 1ch 0;
-} 
-.blog-error {
-	border-left: 3px solid #DD9090;
-	background-color: #FFEEEE;
 }

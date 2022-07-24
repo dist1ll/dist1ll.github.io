@@ -1,6 +1,7 @@
 _site
 .sass-cache
 .jekyll-metadata
-001.html
+
+blog/
 
 .notes
