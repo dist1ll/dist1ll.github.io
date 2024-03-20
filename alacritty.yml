@@ -12,8 +12,14 @@ colors:
     # background: '#2d2a2e'
 window:
   dynamic_title: false
-  decorations: buttonless
+  decorations: Full
+  position:
+    x: 30
+    y: 50
+  dimensions:
+    columns: 150
+    lines: 40
   padding:
-    y: 8
+    y: 5
     x: 5
 
