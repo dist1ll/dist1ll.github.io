@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 	<head>
-		<title>Measuring the Impact of False Sharing</title>
+		<title>Measuring the impact of false sharing</title>
 		<link rel="canonical" href="https://alic.dev/blog/false-sharing" />
 		<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
 		<meta charset="UTF-8">
@@ -105,7 +105,7 @@
 						<a class="header-def" href="https://github.com/dist1ll">Github</a>
 						<a class="header-def" href="https://www.linkedin.com/in/dist1ll/">Linkedin</a>
 				</div>
-				<div id="blog-title">Measuring the Impact of False Sharing</div>
+				<div id="blog-title">Measuring the impact of false sharing</div>
 				<div class="blog-date">January 2023 - RSS<a href="../feed.xml"><img class="blog-rss"></a></div>
 				<div id="blog-content">
 					I recently began writing a bounded, wait-free, multi-producer 
@@ -174,10 +174,15 @@
 					other processors' cache lines that contained this addresses value, 
 					thereby forcing the affected processors to pull the latest value 
 					from a lower memory level (last-level cache or main memory) 
-					on the next read. This can 
+					on the next read in the worst case. This can 
 					strongly degrade performance, and can cause a poorly-implemented 
 					multithreaded system to perform worse than its single-threaded 
-					counterpart.
+					counterpart. For a real example, refer to chapter 7.3 of the
+					<a href="https://www.amd.com/content/dam/amd/en/documents/processor-tech-docs/programmer-references/24593.pdf">
+					AMD64 architecture manual</a>, which covers their MOESDIF 
+					(<b>M</b>odified, <b>O</b>wned, <b>E</b>xclusive, <b>S</b>hared,
+					<b>D</b>irty, <b>I</b>nvalid, <b>F</b>orward) cache 
+					coherence protocol.
 					</p>
 
 					<span class="sidenote">

@@ -3,7 +3,7 @@
 <title type="text">Adrian Alic's Blog</title>
 <link rel="alternate" type="text/html" href="https://alic.devh"/>
 <link rel="self" type="application/atom+xml" href="https://alic.dev/feed.xml"/>
-<updated>2023-05-12T00:00:00Z</updated>
+<updated>2024-04-03T00:00:00Z</updated>
 <logo>https://alic.dev/logo.svg</logo>
 <icon>https://alic.dev/logo.svg</icon>
 
@@ -31,7 +31,7 @@
   <title type="text">Beating the Fastest Lexer Generator in Rust</title>
   <link rel="alternate" type="text/html" href="https://alic.dev/blog/fast-lexing.html"/>
   <published>2023-06-30T00:00:00Z</published>
-  <updated>2023-06-30T00:00:00Z</updated>
+  <updated>2024-04-03T00:00:00Z</updated>
   <author>
   <name>Adrian Alic</name>
   <email>contact@alic.dev</email>
@@ -68,7 +68,7 @@
   <title type="text">Measuring the Impact of False Sharing</title>
   <link rel="alternate" type="text/html" href="https://alic.dev/blog/false-sharing.html"/>
   <published>2023-01-28T00:00:00Z</published>
-  <updated>2023-05-06T00:00:00Z</updated>
+  <updated>2024-04-03T00:00:00Z</updated>
   <author>
   <name>Adrian Alic</name>
   <email>contact@alic.dev</email>

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 	<head>
-		<title>Beating the Fastest Lexer Generator in Rust</title>
+		<title>Beating the fastest lexer generator in Rust</title>
 		<link rel="canonical" href="https://alic.dev/blog/fast-lexing"/>
 		<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
 		<meta charset="UTF-8">
@@ -675,6 +675,14 @@
 					<a href="https://github.com/dist1ll/lexer-exp">final version</a>
 					for yourself (aarch64 only, run <span class="ilc">cargo bench</span>).
 					</p>
+
+					<span class="sidenote">
+					<b>Credit</b>: Thanks to Mahmoud Mazouz for uncovering a performance
+					regression while trying to reproduce the benchmark. The primary 
+					culprit was the <span class="ilc">#[no_mangle]</span> attribute on the
+					<span class="ilc">next_token</span> function,
+					which I left in the code for debugging convenience.
+					</span>
 					
 					<div class="blog-subtitle">Conclusion</div>
 					This ends the first part into my experiments. We're able to beat logos 
