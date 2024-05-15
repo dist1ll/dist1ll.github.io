@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>Avoid parallelization and caching as long as feasible</title>
+		<link rel="canonical" href="https://alic.dev/blog/parallel-caching"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
+		<meta charset="UTF-8">
+		<meta name="description" content="Parallelization and caching are one of the most powerful optimizations, eftan yielding multiple order-of-magnitude improvements. But I would argue that there's a very real downside to them - and that issue has a lot to do with how engineers think about performance.">
+		<meta name="theme-color" content="#000000">
+		<link rel="icon" type="image/png" sizes="32x32" href="../favicon-32x32.png">
+		<link rel="icon" type="image/png" sizes="16x16" href="../favicon-16x16.png">
+		<link rel="stylesheet" href="../style.css">
+		<link rel="stylesheet" href="../blogstyle.css">
+
+		<link as="font" href="../static/fonts/cmu1.woff2" rel="preload" type="font/woff2">
+		<link as="font" href="../static/fonts/cmu2.woff2" rel="preload" type="font/woff2">
+		<link as="font" href="../static/fonts/cmu3.woff2" rel="preload" type="font/woff2">
+
+		<style>
+		@font-face {
+			font-family: 'Computer Modern'; src: url('../static/fonts/cmu1.woff2') format('woff2');
+			font-weight: 400; font-style: normal; font-display: swap;
+		}
+		@font-face {
+			font-family: 'Computer Modern'; src: url('../static/fonts/cmu2.woff2') format('woff2');
+			font-weight: 400; font-style: italic; font-display: swap;
+		}
+		@font-face {
+			font-family: 'Computer Modern'; src: url('../static/fonts/cmu3.woff2') format('woff2');
+			font-weight: 700; font-style: normal; font-display: swap;
+		}
+		</style>
+	<style>
+
+.chroma .err { color: #a61717; background-color: #e3d2d2 }
+.chroma .lnlinks { outline: none; text-decoration: none; color: inherit }
+.chroma .lntd { vertical-align: top; padding: 0; margin: 0; border: 0; }
+.chroma .lntable { border-spacing: 0; padding: 0; margin: 0; border: 0; }
+.chroma .hl { background-color: #e5e5e5 }
+.chroma .lnt { white-space: pre; -webkit-user-select: none; user-select: none; margin-right: 0.4em; padding: 0 0.4em 0 0.4em;color: #7f7f7f }
+.chroma .ln { white-space: pre; -webkit-user-select: none; user-select: none; margin-right: 0.4em; padding: 0 0.4em 0 0.4em;color: #7f7f7f }
+.chroma .line { display: flex; }
+.chroma .k,
+.chroma .kc,.chroma .kd,
+.chroma .kn,.chroma .kp,
+.chroma .kr { color: #000000; font-weight: bold }
+.chroma .kt { color: #445588; font-weight: bold }
+.chroma .na { color: #008080 }
+.chroma .nb { color: #0086b3 }
+.chroma .bp { color: #999999 }
+.chroma .nc { color: #445588; font-weight: bold }
+.chroma .no { color: #008080 }
+.chroma .nd { color: #3c5d5d; font-weight: bold }
+.chroma .ni { color: #800080 }
+.chroma .ne,.chroma .nf,
+.chroma .nl { color: #990000; font-weight: bold }
+.chroma .nn { color: #555555 }
+.chroma .nt { color: #000080 }
+.chroma .nv { color: #008080 }
+.chroma .vc { color: #008080 }
+.chroma .vg { color: #008080 }
+.chroma .vi { color: #008080 }
+.chroma .s,.chroma .sa,
+.chroma .sb,.chroma .sc,
+.chroma .dl,.chroma .sd,
+.chroma .s2,.chroma .se,
+.chroma .sh,.chroma .si,
+.chroma .sx,.chroma .s1,
+.chroma .sr,.chroma .ss { color: #990073 }
+.chroma .m,.chroma .mb,
+.chroma .mf,.chroma .mh,
+.chroma .mi,.chroma .il,
+.chroma .mo { color: #009999 }
+.chroma .o { color: #000000; font-weight: bold }
+.chroma .ow { color: #000000; font-weight: bold }
+.chroma .c,.chroma .ch,.chroma .cm,
+.chroma .c1 { color: #999988; font-style: italic }
+.chroma .cs,.chroma .cp,
+.chroma .cpf { color: #999999; font-weight: bold; font-style: italic }
+.chroma .gd { color: #000000; background-color: #ffdddd }
+.chroma .ge { color: #000000; font-style: italic }
+.chroma .gr { color: #aa0000 }
+.chroma .gh { color: #999999 }
+.chroma .gi { color: #000000; background-color: #ddffdd }
+.chroma .go { color: #888888 }
+.chroma .gp { color: #555555 }
+.chroma .gs { font-weight: bold }
+.chroma .gu { color: #aaaaaa }
+.chroma .gt { color: #aa0000 }
+.chroma .gl { text-decoration: underline }
+.chroma .w { color: #bbbbbb }
+</style></head>
+	<body>
+		<div id="app">
+			<div id="content">
+				<div id="header">
+						<a class="header-sel" href="https://alic.dev" style="margin-left: 5px;">Blog</a>
+						<a class="header-def" href="https://alic.dev/repos.html">Repos</a>
+						<a class="header-def" href="https://github.com/dist1ll">Github</a>
+						<a class="header-def" href="https://www.linkedin.com/in/dist1ll/">Linkedin</a>
+				</div>
+				<div id="blog-title">Avoid parallelization and caching as long as feasible</div>
+				<div class="blog-date">May 2024 - RSS<a href="../feed.xml"><img class="blog-rss"></a></div>
+				
+				<div id="blog-content">
+					
+					<p>
+					Lots of articles have been written about the complex failure modes of caching - so I won't talk about it in this post.
+					</p>
+
+					<p>
+					There's another issue I have with caching, and it's the same thing 
+					that has bothered my about parallelization: these optimizations tend 
+					to give you order-of-magnitude speedups and the confidence that your
+					system is well engineered. As a consequence, they let you defer 
+					thinking about performance until your system architecture starts 
+					breaking at scale, at which point your design is likely entrenched.
+					</p>
+
+					<p>
+					The interesting thing here is that the performance optimization 
+					<i>itself</i> is not necessarily the primary source of your technical
+					debt. Take compilers for example. As long as you've taken slight care 
+					when designing your data structures, adding multithreaded compilation is pretty simple(*).
+					<div class="sidenote">
+					(*): Of course that depends on the granularity of parallelization and
+					how modular your language is. If you have a module system and some notion of
+					separate code-generation units, then parallelizing them is usually straightforward.
+					</div>
+					</p>
+
+
+					<p>
+					My issue is with the <b>second-order effects</b> of these optimizations. You've
+					just unlocked an order of magnitude in compilation throughput essentially
+					for free. What's the next step? How likely is it that you'll immediately
+					return to your code and think "alright, 10MLoC/s is good for a baseline
+					compiler, but not good enough, let's improve single-threaded performance". 
+					</p>
+
+					<p>
+					My suspicion is that most people would think "Wow that's fast. Now 
+					that performance is solved, let's start adding features". But you really
+					didn't do much. You just flipped a switch. It's like optimizing your 
+					software by upgrading your CPU. Any fundamental flaws in your design 
+					will still be lingering around.
+					</p>
+
+					<p>
+					With caching, things becomes even more drastic. In the case of
+					compilers, the best example is incremental compilation. If your code 
+					generation units are fine-grained enough, you'll be able to incrementally 
+					compile <i>massive</i> projects almost instantaneously!
+					It just requires living in denial during the first from-scratch build, 
+					and everything beyond is smooth sailing. When you reach that point, 
+					clean builds may start to be perceived as second-class citizens and
+					not be given the attention they deserve.
+					</p>
+
+					<p>So really, the core issue is one of perception - which brings me to my next point:</p>
+
+
+					<div class="blog-subtitle">What is good performance?</div>
+					<p>
+					You implement these great performance multipliers, and experience an
+					immediate satisfaction. But what exactly are we celebrating? How
+					exactly are we gauging the quality of our software performance?
+					</p>
+
+					<p>
+					I think many software engineers (me included) fall into the trap of
+					giving too much weight to relative performance improvements, without
+					viewing it through the lens of the changes made. "This patch made my
+					application 2x faster". That's great, but does the 2x improvement match
+					our expectation or experience? "Rewriting this Python app in C++ made
+					our software 10.000x faster". Cool, but why not 100.000x? Or more? 
+					</p>
+
+					<p>
+					If the real performance ceiling of our rewrite is still multiple
+					orders of magnitude higher than our implementation, have we still done an
+					adequate job? I'm not trying to be cynical, but rather trying to point
+					out that our perception of performance can be very warped.
+					</p>
+
+					<p>
+					If the only reason we're satisfied with our performance is a big, 
+					relative improvement, we've fallen victim to a form of 
+					<a href="https://en.wikipedia.org/wiki/Anchoring_effect">anchoring bias</a>.
+					By reaching too early for these two
+					optimizations, you will very quickly play into this bias. This might
+					work in your favor when trying to sell your project, but it's a poor
+					way to guide your engineering efforts. To counter this, I have a simple proposition:
+					</p>
+
+					<div class="blog-subtitle">A proposition</div>
+
+					<p>
+					Start optimizing the basic case first. Improve single-threaded
+					performance and practice mechanical sympathy. ILP, cache efficiency,
+					data layout, tuned hash functions, efficient data traversal, memory
+					footprint, code specialization, reducing branch mispredicts, eliminating
+					indirections, looking for missed opts, SIMD intrinsics. All of this is
+					going to reveal critical design flaws <i>very</i> early on. It'll also
+					consume more of your time, which I would argue is a <i>good</i> thing. 
+					</p>
+
+					<p>
+					Compiler performance is not a thing you can just spontaneously "tack on"
+					after you're 100k lines deep into development - it has to be a serious
+					consideration from the start. The same goes for semantics in language
+					design. You might find this frustrating, and sometimes feel that you're
+					not making progress, e.g. spending days and weeks iterating on data
+					structures is often less exciting than adding a fancy feature to your type system.
+					</p>
+
+
+					<p>
+					But all this downtime is spent <i>solving real, hard problems</i>. So
+					my advice is: don't chase easy wins, try to be more honest and 
+					objective about relative performance improvements, and try tackling 
+					hard problems from the very start. Avoid things like multithreading 
+					and incremental compilation until you've sufficiently explored the 
+					basic case. 
+					</p>
+
+					<!-- +++++++++ -->
+				</div>
+			</div>
+		</div>
+	</body>
+</html>
