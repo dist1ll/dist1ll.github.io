@@ -46,16 +46,19 @@
 				<div id="blog-content">
 					
 					<p>
-					Lots of articles have been written about the complex failure modes of caching - so I won't talk about it in this post.
+					Lots of articles have been written about how caching introduces
+					maintenance burden and more complex failure modes - this is not 
+					what this blog post is about.
 					</p>
 
 					<p>
-					There's another issue I have with caching, and it's the same thing 
-					that has bothered my about parallelization: these optimizations tend 
+					Instead, I'd like to discuss an issue I've noticed which goes beyond
+					implementation complexity - and it's the same thing that bothers
+					me about parallelization: these optimizations tend 
 					to give you order-of-magnitude speedups and the confidence that your
-					system is well engineered. As a consequence, they let you defer 
-					thinking about performance until your system architecture starts 
-					breaking at scale, at which point your design is likely entrenched.
+					system is well engineered. This lets you defer 
+					thinking about performance until you hit scaling issues, at which
+					point you're entrenched in your design choices.
 					</p>
 
 					<p>
@@ -118,9 +121,14 @@
 					</p>
 
 					<p>
-					If the real performance ceiling of our rewrite is still multiple
-					orders of magnitude higher than our implementation, have we still done an
-					adequate job? I'm not trying to be cynical, but rather trying to point
+					Part of the problem is that reasoning honestly about performance
+					requires a good mental model of our compliers, hardware constraints and
+					the memory locality of our implementation. 
+					Imagine we had a conservative model that indicates our rewrite is
+					still multiple orders of magnitude slower than it could be. Have we still done an
+					adequate job? Is it really time to introduce multithreading, if
+					we drastically undershoot our current performance estimate? 
+					I'm not trying to be cynical, but rather trying to point
 					out that our perception of performance can be very warped.
 					</p>
 
@@ -162,7 +170,10 @@
 					objective about relative performance improvements, and try tackling 
 					hard problems from the very start. Avoid things like multithreading 
 					and incremental compilation until you've sufficiently explored the 
-					basic case. 
+					basic case. If you're inexplicably missing orders of magnitude of
+					performance in the base case, or you have no mental model or
+					objective expectation on your software's performance, you should
+					continue exploring.
 					</p>
 
 					<!-- +++++++++ -->
