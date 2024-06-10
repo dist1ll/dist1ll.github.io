@@ -161,7 +161,7 @@
 					has been compilers. One problem that keeps coming up when designing 
 					an AST is figuring out how to reduce its memory footprint. Big ASTs 
 					can incur a hefty performance penalty during compilation, because 
-					memory bandwidth and latency are a frequent bottleneck in compiler 
+					memory latency and cache evictions are frequent bottlenecks in compiler 
 					frontends. Chandler Carruth's 
 					<a href="https://www.youtube.com/watch?v=ZI198eFghJk">video on the Carbon compiler</a> has been 
 					making the rounds on language forums. In it he describes how a 
