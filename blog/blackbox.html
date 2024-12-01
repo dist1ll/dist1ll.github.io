@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>Avoiding benchmarking pitfalls with std::hint::black_box</title>
+		<link rel="canonical" href="https://alic.dev/blog/blackbox" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
+		<meta charset="UTF-8">
+		<meta name="description" content="">
+		<meta name="theme-color" content="#000000">
+		<link rel="icon" type="image/png" sizes="32x32" href="../favicon-32x32.png">
+		<link rel="icon" type="image/png" sizes="16x16" href="../favicon-16x16.png">
+		<link rel="stylesheet" href="../style.css">
+		<link rel="stylesheet" href="../blogstyle.css">
+
+		<link as="font" href="../static/fonts/cmu1.woff2" rel="preload" type="font/woff2">
+		<link as="font" href="../static/fonts/cmu2.woff2" rel="preload" type="font/woff2">
+		<link as="font" href="../static/fonts/cmu3.woff2" rel="preload" type="font/woff2">
+
+		<style>
+		@font-face {
+			font-family: 'Computer Modern'; src: url('../static/fonts/cmu1.woff2') format('woff2');
+			font-weight: 400; font-style: normal; font-display: swap;
+		}
+		@font-face {
+			font-family: 'Computer Modern'; src: url('../static/fonts/cmu2.woff2') format('woff2');
+			font-weight: 400; font-style: italic; font-display: swap;
+		}
+		@font-face {
+			font-family: 'Computer Modern'; src: url('../static/fonts/cmu3.woff2') format('woff2');
+			font-weight: 700; font-style: normal; font-display: swap;
+		}
+		</style>
+	<style>
+
+.chroma .err { color: #a61717; background-color: #e3d2d2 }
+.chroma .lnlinks { outline: none; text-decoration: none; color: inherit }
+.chroma .lntd { vertical-align: top; padding: 0; margin: 0; border: 0; }
+.chroma .lntable { border-spacing: 0; padding: 0; margin: 0; border: 0; }
+.chroma .hl { background-color: #e5e5e5 }
+.chroma .lnt { white-space: pre; -webkit-user-select: none; user-select: none; margin-right: 0.4em; padding: 0 0.4em 0 0.4em;color: #7f7f7f }
+.chroma .ln { white-space: pre; -webkit-user-select: none; user-select: none; margin-right: 0.4em; padding: 0 0.4em 0 0.4em;color: #7f7f7f }
+.chroma .line { display: flex; }
+.chroma .k,
+.chroma .kc,.chroma .kd,
+.chroma .kn,.chroma .kp,
+.chroma .kr { color: #000000; font-weight: bold }
+.chroma .kt { color: #445588; font-weight: bold }
+.chroma .na { color: #008080 }
+.chroma .nb { color: #0086b3 }
+.chroma .bp { color: #999999 }
+.chroma .nc { color: #445588; font-weight: bold }
+.chroma .no { color: #008080 }
+.chroma .nd { color: #3c5d5d; font-weight: bold }
+.chroma .ni { color: #800080 }
+.chroma .ne,.chroma .nf,
+.chroma .nl { color: #990000; font-weight: bold }
+.chroma .nn { color: #555555 }
+.chroma .nt { color: #000080 }
+.chroma .nv { color: #008080 }
+.chroma .vc { color: #008080 }
+.chroma .vg { color: #008080 }
+.chroma .vi { color: #008080 }
+.chroma .s,.chroma .sa,
+.chroma .sb,.chroma .sc,
+.chroma .dl,.chroma .sd,
+.chroma .s2,.chroma .se,
+.chroma .sh,.chroma .si,
+.chroma .sx,.chroma .s1,
+.chroma .sr,.chroma .ss { color: #990073 }
+.chroma .m,.chroma .mb,
+.chroma .mf,.chroma .mh,
+.chroma .mi,.chroma .il,
+.chroma .mo { color: #009999 }
+.chroma .o { color: #000000; font-weight: bold }
+.chroma .ow { color: #000000; font-weight: bold }
+.chroma .c,.chroma .ch,.chroma .cm,
+.chroma .c1 { color: #999988; font-style: italic }
+.chroma .cs,.chroma .cp,
+.chroma .cpf { color: #999999; font-weight: bold; font-style: italic }
+.chroma .gd { color: #000000; background-color: #ffdddd }
+.chroma .ge { color: #000000; font-style: italic }
+.chroma .gr { color: #aa0000 }
+.chroma .gh { color: #999999 }
+.chroma .gi { color: #000000; background-color: #ddffdd }
+.chroma .go { color: #888888 }
+.chroma .gp { color: #555555 }
+.chroma .gs { font-weight: bold }
+.chroma .gu { color: #aaaaaa }
+.chroma .gt { color: #aa0000 }
+.chroma .gl { text-decoration: underline }
+.chroma .w { color: #bbbbbb }
+</style></head>
+	<body>
+		<div id="app">
+			<div id="content">
+				<div id="header">
+						<a class="header-sel" href="https://alic.dev" style="margin-left: 5px;">Blog</a>
+						<a class="header-def" href="https://alic.dev/repos.html">Repos</a>
+						<a class="header-def" href="https://github.com/dist1ll">Github</a>
+						<a class="header-def" href="https://www.linkedin.com/in/dist1ll/">Linkedin</a>
+				</div>
+				<div id="blog-title">Avoiding benchmarking pitfalls with std::hint::black_box</div>
+				<div class="blog-date">November 2022 - RSS<a href="../feed.xml"><img class="blog-rss"></a></div>
+				<div id="blog-content">
+				<p>
+					When benchmarking short programs, you often encounter two big problems that mess up your 
+					final results: (1) hardware and operating systems are full of side-effects that are neither 
+					transparent nor directly manipulable and (2) compilers can optimize in unpredictable ways, 
+					requiring IR/Assembly inspection and knowledge of compiler intrinsics. 
+				</p>
+					One such example happened while I was benchmarking a multithreaded queue. I chose my 
+					struct alignments in a way that would reduce cache coherency traffic, which should 
+					translate to a noticeable improvement in per-thread throughput on write-heavy workloads. 
+					However, I measured the <b>exact opposite</b>! This is an excerpt of the code, where
+					we essentially just increment a variable:
+					
+					<div class="blog-cg">
+<div class="blog-code">
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="k">for</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="mi">0</span><span class="o">..</span><span class="mh">0xffff</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="c1">//...
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="w">    </span><span class="o">*</span><span class="n">head</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="n">head</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="p">(</span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&amp;</span><span class="n">lt</span><span class="p">;</span><span class="o">&amp;</span><span class="n">lt</span><span class="p">;</span><span class="w"> </span><span class="n">C</span><span class="p">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">}</span><span class="w">
+</span></span></span></code></pre>
+</div>
+					</div>
+
+					We're dereferencing a <span class="ilc">*mut</span>, 
+					incrementing the value, and storing it at the same address. 
+					We should expect to see at least an <span class="ilc">ldr</span> and <span class="ilc">str</span> 
+					instruction. Generating the corresponding arm64 assembly with 
+					<span class="ilc">RUSTFLAGS="--emit asm" cargo bench --no-run</span> yields:
+					
+					<div class="blog-cg">
+<div class="blog-code">
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="nl">LBB0_1</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">        add     <span class="nc">w9</span>, <span class="nc">w9</span>, #<span class="mi">1</span>
+</span></span><span class="line"><span class="cl">        and     <span class="nc">w9</span>, <span class="nc">w9</span>, #<span class="mh">0xffff</span>
+</span></span><span class="line"><span class="cl">        subs    <span class="nc">x10</span>, <span class="nc">x10</span>, #<span class="mi">1</span>
+</span></span><span class="line"><span class="cl">        b<span class="err">.</span><span class="err">n</span><span class="err">e</span>    <span class="err">L</span><span class="err">B</span><span class="err">B</span><span class="err">0</span><span class="err">_</span><span class="err">1</span>
+</span></span><span class="line"><span class="cl">        str     <span class="nc">w9</span>, <span class="err">[</span><span class="nc">x8</span><span class="err">]</span>
+</span></span></code></pre>
+</div></div>
+					Sneaky! The last line reveals the problem with my benchmark. The changed values 
+					are written back to main memory <b>only once</b> after the loop has finished, which means there 
+					is barely any cache coherency traffic happening! Honestly, I would've expected llvm 
+					to just unroll the loop and add 65536 directly to <span class="ilc">[x8]</span>, 
+					but to my surprise it keeps the loop around. 
+
+					We can fix this in native Rust by using a compiler hint called 
+					<span class="ilc">std::hint::black_box</span>:
+				
+					<div class="blog-cg">
+<div class="blog-code">
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="k">for</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="mi">0</span><span class="o">..</span><span class="mh">0xffff</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="c1">//...
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="w">    </span><span class="o">*</span><span class="n">head</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="n">head</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;</span><span class="w"> </span><span class="p">(</span><span class="p">(</span><span class="mi">1</span><span class="w"> </span><span class="o">&amp;</span><span class="n">lt</span><span class="p">;</span><span class="o">&amp;</span><span class="n">lt</span><span class="p">;</span><span class="w"> </span><span class="n">C</span><span class="p">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">black_box</span><span class="p">(</span><span class="n">head</span><span class="p">)</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">}</span><span class="w">
+</span></span></span></code></pre>
+</div></div>
+
+					According to the official Rust docs, <span class="ilc">black_box</span> is "an identity function that hints 
+					to the compiler to be maximally pessimistic about what <span class="ilc">black_box</span> could do". 
+					Ideally, this function should be interpreted as a side-effect by the compiler - meaning that 
+					the function alters the <i>observable behavior</i> of the program.  
+					The compiler should then not be allowed to elide
+					and defer <span class="ilc">str</span> instructions across our loop iterations 
+					like we've seen before.
+										
+					And to our satisfaction, after compiling the <span class="ilc">black_box</span> variant, we
+					find our missing load and store instructions:
+
+					<div class="blog-cg">
+<div class="blog-code">
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="nl">LBB0_1</span><span class="p">:</span>
+</span></span><span class="line"><span class="cl">        ldr     <span class="nc">x11</span>, <span class="err">[</span><span class="err">s</span><span class="err">p</span><span class="err">]</span>
+</span></span><span class="line"><span class="cl">        ldr     <span class="nc">w12</span>, <span class="err">[</span><span class="nc">x11</span><span class="err">]</span>
+</span></span><span class="line"><span class="cl">        add     <span class="nc">w12</span>, <span class="nc">w12</span>, #<span class="mi">1</span>
+</span></span><span class="line"><span class="cl">        and     <span class="nc">w12</span>, <span class="nc">w12</span>, #<span class="mh">0xffff</span>
+</span></span><span class="line"><span class="cl">        str     <span class="nc">w12</span>, <span class="err">[</span><span class="nc">x11</span><span class="err">]</span>
+</span></span><span class="line"><span class="cl">        str     <span class="nc">x9</span>, <span class="err">[</span><span class="err">s</span><span class="err">p</span>, #<span class="mi">24</span><span class="err">]</span>
+</span></span><span class="line"><span class="cl">        subs    <span class="nc">x8</span>, <span class="nc">x8</span>, #<span class="mi">1</span>
+</span></span><span class="line"><span class="cl">        b<span class="err">.</span><span class="err">n</span><span class="err">e</span>    <span class="err">L</span><span class="err">B</span><span class="err">B</span><span class="err">0</span><span class="err">_</span><span class="err">1</span>
+</span></span></code></pre>
+</div></div>
+
+					But what goes on under the hood? Being an unstable feature, the 
+					implementation of <span class="ilc">black_box</span> 
+					has undergone several changes. The 
+					<a href="https://github.com/rust-lang/rust/blob/master/compiler/rustc_const_eval/src/interpret/intrinsics.rs#L517-L519">
+					most recent one</a>, which is likely going to be stabilized,
+					is implemented as a rustc compiler intrinsic. If we follow the definition
+					of <span class="ilc">copy_op</span>, we'll arrive at 
+					<a href="https://doc.rust-lang.org/nightly/nightly-rustc/src/rustc_const_eval/interpret/place.rs.html#617-689">
+					this function</a>. As long as the passed in object is small enough, we can write a scalar
+					value to the same memory location: 
+					<div class="blog-cg">
+<div class="blog-code">
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="k">pub</span><span class="w"> </span><span class="k">fn</span> <span class="nf">write_scalar</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span><span class="w"> </span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">range</span>: <span class="nc">AllocRange</span><span class="p">,</span><span class="w"> </span><span class="n">val</span>: <span class="nc">Scalar</span><span class="o">&lt;</span><span class="n">Prov</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span>-&gt; <span class="o">..</span><span class="p">.</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="n">range</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="bp">self</span><span class="p">.</span><span class="n">range</span><span class="p">.</span><span class="n">subrange</span><span class="p">(</span><span class="n">range</span><span class="p">)</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="nb">Ok</span><span class="p">(</span><span class="bp">self</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">        </span><span class="p">.</span><span class="n">alloc</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">        </span><span class="p">.</span><span class="n">write_scalar</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">.</span><span class="n">tcx</span><span class="p">,</span><span class="w"> </span><span class="n">range</span><span class="p">,</span><span class="w"> </span><span class="n">val</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">        </span><span class="p">.</span><span class="n">map_err</span><span class="p">(</span><span class="o">|</span><span class="n">e</span><span class="o">|</span><span class="w"> </span><span class="n">e</span><span class="p">.</span><span class="n">to_interp_error</span><span class="p">(</span><span class="bp">self</span><span class="p">.</span><span class="n">alloc_id</span><span class="p">)</span><span class="p">)</span><span class="o">?</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">}</span><span class="w">
+</span></span></span></code></pre>
+</div></div>
+					This also explains the second <span class="ilc">str</span>
+					instruction in our <span class="ilc">black_box</span> variant. There are some things to keep in mind though:
+					<ul>
+						<li>Make sure to pass large objects via <span class="ilc">&mut T</span>. If you pass them by value, you will
+						end up with a memcpy even in optimized builds. </li>
+						<li><span class="ilc">black_box</span> does not guarantee anything, 
+						and only works as an advisory function. It's not a llvm intrinsic. 
+						So manual inspection of IR or assembly is still necessary.</li>
+						<li><s><span class="ilc">black_box</span> is still experimental and awaits stabilization, 
+						part of which is possibly a name and documentation change.</s> (stabilized as of 2022-12-15)</li>
+						<li>Creating a version of <span class="ilc">black_box</span> that gives strict guarantees 
+						would require a top-to-bottom rework, including patching backends 
+						to support these intrinsics.</li>
+					</ul>
+					You can find an interesting discussion about this function in the 
+					<a href="https://github.com/rust-lang/rust/issues/64102">tracking issue on GitHub</a>. 
+					
+					<div class="blog-note">
+					<b>Update (December):</b> With the release of Rust 1.66, <span class="ilc">black_box</span>
+					has been officially stabilized. You can find more information on the 
+					<a href="https://blog.rust-lang.org/2022/12/15/Rust-1.66.0.html">
+					official announcement post</a>.  
+					</div>
+
+				</div>
+			</div>
+		</div>
+	</body>
+</html>

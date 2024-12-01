@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>Avoiding benchmarking pitfalls with std::hint::black_box</title>
+		<link rel="canonical" href="https://alic.dev/blog/blackbox" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
+		<meta charset="UTF-8">
+		<meta name="description" content="">
+		<meta name="theme-color" content="#000000">
+		<link rel="icon" type="image/png" sizes="32x32" href="../favicon-32x32.png">
+		<link rel="icon" type="image/png" sizes="16x16" href="../favicon-16x16.png">
+		<link rel="stylesheet" href="../style.css">
+		<link rel="stylesheet" href="../blogstyle.css">
+
+		<link as="font" href="../static/fonts/cmu1.woff2" rel="preload" type="font/woff2">
+		<link as="font" href="../static/fonts/cmu2.woff2" rel="preload" type="font/woff2">
+		<link as="font" href="../static/fonts/cmu3.woff2" rel="preload" type="font/woff2">
+
+		<style>
+		@font-face {
+			font-family: 'Computer Modern'; src: url('../static/fonts/cmu1.woff2') format('woff2');
+			font-weight: 400; font-style: normal; font-display: swap;
+		}
+		@font-face {
+			font-family: 'Computer Modern'; src: url('../static/fonts/cmu2.woff2') format('woff2');
+			font-weight: 400; font-style: italic; font-display: swap;
+		}
+		@font-face {
+			font-family: 'Computer Modern'; src: url('../static/fonts/cmu3.woff2') format('woff2');
+			font-weight: 700; font-style: normal; font-display: swap;
+		}
+		</style>
+	</head>
+	<body>
+		<div id="app">
+			<div id="content">
+				<div id="header">
+						<a class="header-sel" href="https://alic.dev" style="margin-left: 5px;">Blog</a>
+						<a class="header-def" href="https://alic.dev/repos.html">Repos</a>
+						<a class="header-def" href="https://github.com/dist1ll">Github</a>
+						<a class="header-def" href="https://www.linkedin.com/in/dist1ll/">Linkedin</a>
+				</div>
+				<div id="blog-title">Avoiding benchmarking pitfalls with std::hint::black_box</div>
+				<div class="blog-date">November 2022 - RSS<a href="../feed.xml"><img class="blog-rss"></a></div>
+				<div id="blog-content">
+				<p>
+					When benchmarking short programs, you often encounter two big problems that mess up your 
+					final results: (1) hardware and operating systems are full of side-effects that are neither 
+					transparent nor directly manipulable and (2) compilers can optimize in unpredictable ways, 
+					requiring IR/Assembly inspection and knowledge of compiler intrinsics. 
+				</p>
+					One such example happened while I was benchmarking a multithreaded queue. I chose my 
+					struct alignments in a way that would reduce cache coherency traffic, which should 
+					translate to a noticeable improvement in per-thread throughput on write-heavy workloads. 
+					However, I measured the <b>exact opposite</b>! This is an excerpt of the code, where
+					we essentially just increment a variable:
+					
+					<div class="blog-cg">
+<div class="blog-code">
+```rust
+for i in 0..0xffff {
+    //...
+    *head = (*head + 1) & ((1 &lt;&lt; C) - 1);
+}
+```
+</div>
+					</div>
+
+					We're dereferencing a <span class="ilc">*mut</span>, 
+					incrementing the value, and storing it at the same address. 
+					We should expect to see at least an <span class="ilc">ldr</span> and <span class="ilc">str</span> 
+					instruction. Generating the corresponding arm64 assembly with 
+					<span class="ilc">RUSTFLAGS="--emit asm" cargo bench --no-run</span> yields:
+					
+					<div class="blog-cg">
+<div class="blog-code">
+```armasm
+LBB0_1:
+        add     w9, w9, #1
+        and     w9, w9, #0xffff
+        subs    x10, x10, #1
+        b.ne    LBB0_1
+        str     w9, [x8]
+```
+</div></div>
+					Sneaky! The last line reveals the problem with my benchmark. The changed values 
+					are written back to main memory <b>only once</b> after the loop has finished, which means there 
+					is barely any cache coherency traffic happening! Honestly, I would've expected llvm 
+					to just unroll the loop and add 65536 directly to <span class="ilc">[x8]</span>, 
+					but to my surprise it keeps the loop around. 
+
+					We can fix this in native Rust by using a compiler hint called 
+					<span class="ilc">std::hint::black_box</span>:
+				
+					<div class="blog-cg">
+<div class="blog-code">
+```rust
+for i in 0..0xffff {
+    //...
+    *head = (*head + 1) & ((1 &lt;&lt; C) - 1);
+    black_box(head);
+}
+```
+</div></div>
+
+					According to the official Rust docs, <span class="ilc">black_box</span> is "an identity function that hints 
+					to the compiler to be maximally pessimistic about what <span class="ilc">black_box</span> could do". 
+					Ideally, this function should be interpreted as a side-effect by the compiler - meaning that 
+					the function alters the <i>observable behavior</i> of the program.  
+					The compiler should then not be allowed to elide
+					and defer <span class="ilc">str</span> instructions across our loop iterations 
+					like we've seen before.
+										
+					And to our satisfaction, after compiling the <span class="ilc">black_box</span> variant, we
+					find our missing load and store instructions:
+
+					<div class="blog-cg">
+<div class="blog-code">
+```armasm
+LBB0_1:
+        ldr     x11, [sp]
+        ldr     w12, [x11]
+        add     w12, w12, #1
+        and     w12, w12, #0xffff
+        str     w12, [x11]
+        str     x9, [sp, #24]
+        subs    x8, x8, #1
+        b.ne    LBB0_1
+```
+</div></div>
+
+					But what goes on under the hood? Being an unstable feature, the 
+					implementation of <span class="ilc">black_box</span> 
+					has undergone several changes. The 
+					<a href="https://github.com/rust-lang/rust/blob/master/compiler/rustc_const_eval/src/interpret/intrinsics.rs#L517-L519">
+					most recent one</a>, which is likely going to be stabilized,
+					is implemented as a rustc compiler intrinsic. If we follow the definition
+					of <span class="ilc">copy_op</span>, we'll arrive at 
+					<a href="https://doc.rust-lang.org/nightly/nightly-rustc/src/rustc_const_eval/interpret/place.rs.html#617-689">
+					this function</a>. As long as the passed in object is small enough, we can write a scalar
+					value to the same memory location: 
+					<div class="blog-cg">
+<div class="blog-code">
+```rust
+pub fn write_scalar(&mut self, range: AllocRange, val: Scalar<Prov>) -> ... {
+    let range = self.range.subrange(range);
+    Ok(self
+        .alloc
+        .write_scalar(&self.tcx, range, val)
+        .map_err(|e| e.to_interp_error(self.alloc_id))?)
+}
+```
+</div></div>
+					This also explains the second <span class="ilc">str</span>
+					instruction in our <span class="ilc">black_box</span> variant. There are some things to keep in mind though:
+					<ul>
+						<li>Make sure to pass large objects via <span class="ilc">&mut T</span>. If you pass them by value, you will
+						end up with a memcpy even in optimized builds. </li>
+						<li><span class="ilc">black_box</span> does not guarantee anything, 
+						and only works as an advisory function. It's not a llvm intrinsic. 
+						So manual inspection of IR or assembly is still necessary.</li>
+						<li><s><span class="ilc">black_box</span> is still experimental and awaits stabilization, 
+						part of which is possibly a name and documentation change.</s> (stabilized as of 2022-12-15)</li>
+						<li>Creating a version of <span class="ilc">black_box</span> that gives strict guarantees 
+						would require a top-to-bottom rework, including patching backends 
+						to support these intrinsics.</li>
+					</ul>
+					You can find an interesting discussion about this function in the 
+					<a href="https://github.com/rust-lang/rust/issues/64102">tracking issue on GitHub</a>. 
+					
+					<div class="blog-note">
+					<b>Update (December):</b> With the release of Rust 1.66, <span class="ilc">black_box</span>
+					has been officially stabilized. You can find more information on the 
+					<a href="https://blog.rust-lang.org/2022/12/15/Rust-1.66.0.html">
+					official announcement post</a>.  
+					</div>
+
+				</div>
+			</div>
+		</div>
+	</body>
+</html>

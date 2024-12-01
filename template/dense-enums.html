@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>When Zig outshines Rust - Memory efficient enum arrays</title>
+		<link rel="canonical" href="https://alic.dev/blog/dense-enums"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
+		<meta charset="UTF-8">
+		<meta name="description" content="Proper support for sum types or tagged unions have become table stakes for systems programming languages. However, they can incur a lot of memory fragmentation that's not trivial to avoid without good support for metaprogramming. This post goes into Zig's powerful comptime feature, and how it allows some radical approaches to efficient data structure design. ">
+		<meta name="theme-color" content="#000000">
+		<link rel="icon" type="image/png" sizes="32x32" href="../favicon-32x32.png">
+		<link rel="icon" type="image/png" sizes="16x16" href="../favicon-16x16.png">
+		<link rel="stylesheet" href="../style.css">
+		<link rel="stylesheet" href="../blogstyle.css">
+
+		<link as="font" href="../static/fonts/cmu1.woff2" rel="preload" type="font/woff2">
+		<link as="font" href="../static/fonts/cmu2.woff2" rel="preload" type="font/woff2">
+		<link as="font" href="../static/fonts/cmu3.woff2" rel="preload" type="font/woff2">
+
+		<style>
+		@font-face {
+			font-family: 'Computer Modern'; src: url('../static/fonts/cmu1.woff2') format('woff2');
+			font-weight: 400; font-style: normal; font-display: swap;
+		}
+		@font-face {
+			font-family: 'Computer Modern'; src: url('../static/fonts/cmu2.woff2') format('woff2');
+			font-weight: 400; font-style: italic; font-display: swap;
+		}
+		@font-face {
+			font-family: 'Computer Modern'; src: url('../static/fonts/cmu3.woff2') format('woff2');
+			font-weight: 700; font-style: normal; font-display: swap;
+		}
+		</style>
+	</head>
+	<body>
+		<div id="app">
+			<div id="content">
+				<div id="header">
+						<a class="header-sel" href="https://alic.dev" style="margin-left: 5px;">Blog</a>
+						<a class="header-def" href="https://alic.dev/repos.html">Repos</a>
+						<a class="header-def" href="https://github.com/dist1ll">Github</a>
+						<a class="header-def" href="https://www.linkedin.com/in/dist1ll/">Linkedin</a>
+				</div>
+				<div id="blog-title">When Zig outshines Rust - Memory efficient enum arrays</div>
+				<div class="blog-date">Sep 2023 - RSS<a href="../feed.xml"><img class="blog-rss"></a></div>
+				
+				<div id="blog-content">
+					
+					Enums (or tagged unions) whose variants vary in size are prone to significant 
+					memory fragmentation in Rust. That's because we need to allocate enough 
+					data to accommodate the largest variant.
+
+					<figure>
+						<div class="sidenote">
+						<b>Figure 1:</b> Consider the following enum:
+<div class="blog-code">
+```rust
+pub enum Foo { 
+  A(u8), 
+  B(u16),
+  C(u32),
+  D(u64),
+}
+
+```
+</div>
+						Because of the space needed for tagging and alignment, this type is 16 bytes long.
+						</div>
+						<div class="blog-img">
+							<img alt="A visualization of an enum with variants of different sizes, and their respective memory fragmentation." src="../static/dense-enums/img1.webp" style="max-height: 240px">
+						</div>
+					</figure>
+
+					<p>
+					This presents real pain when collecting a large number of them into a 
+					<span class="ilc">Vec</span> or <span class="ilc">HashMap</span>. 
+					The padding can be dealt with using some form of 
+					<i>struct of arrays</i> (SoA)
+					transformation that stores the tag in a separate allocation. 
+					However, reducing the variant fragmentation is not so trivial. 
+					</p>
+
+					<p>
+					You could hand-roll specialized data structures for <i>a particular enum</i>
+					that reduce fragmentation to a minimum; but doing this generically 
+					for an arbitrary enum with maximum memory efficiency is close to 
+					impossible in Rust. The only options we have are proc-macros, which 
+					compose poorly (no <span class="ilc">#[derive]</span> on third-party code or type aliases) 
+					and are not type aware (unless using workarounds based on 
+					<span class="ilc">generic_const_expr</span>, which infect the call graph with verbose where-clauses
+					and don't work with generic type parameters). Zig on the 
+					other hand let's us perform the wildest data structure transformations 
+					in a generic and concise way. 
+					</p>
+
+					<p>
+					Before I go into the implementation details, I'd like to explain why 
+					reducing the aforementioned memory fragmentation is useful in practice. 
+					</p>
+
+					<div class="blog-subtitle">Background</div>
+					<p>
+					To me, one of the biggest motivators for efficient enum arrays 
+					has been compilers. One problem that keeps coming up when designing 
+					an AST is figuring out how to reduce its memory footprint. Big ASTs 
+					can incur a hefty performance penalty during compilation, because 
+					memory latency and cache evictions are frequent bottlenecks in compiler 
+					frontends. Chandler Carruth's 
+					<a href="https://www.youtube.com/watch?v=ZI198eFghJk">video on the Carbon compiler</a> has been 
+					making the rounds on language forums. In it he describes how a 
+					parsed clang AST regularly consumes 50x more memory than the 
+					original source code!
+					</p>
+
+					<p>
+					Alright, so what does this have to do with enums? Well, the 
+					most common way of representing syntax tree nodes is via some kind 
+					of recursive (or recursive-like) data structure. Let's define a node 
+					for expressions in Rust, using newtype indices for indirection:
+					</p>
+					<div class="blog-cg">
+<div class="blog-code">
+```rust
+enum Expr {
+    Unit,
+    Number,
+    Binary(Operation, ExprId, ExprId),
+    Ident(Symbol),
+    Eval(ExprId, ExprSlice),
+    BlockExpression(ExprId, StatementSlice)
+}
+```</div></div>
+
+					<div class="sidenote">
+					<b>Note:</b> We can write an AST node in OCaml for comparison:
+<div class="blog-code">
+```ocaml
+type expr = 
+  | Unit
+  | Number
+  | Binary of op * expr * expr
+  | Ident of symbol
+  | Eval of expr * stmt list
+
+```
+</div>
+					A big difference compared to Rust is that we can express truly 
+					recursive data types without any form of explicit indirection. 
+					That's because the runtime system and garbage collector take care 
+					of the memory bookkeeping for us.
+					</div>
+
+					The problem we have now is that we want to improve the <i>packing efficiency</i>
+					of those enums. A simple <span class="ilc">Vec(Expr)</span> will consume <span class="ilc">sizeof(Enum)</span> 
+					amount of memory for every element, which corresponds to the size of 
+					the largest variant + tag + padding. Luckily, there are some ways 
+					of dealing with this.
+
+					<div class="blog-subtitle">Reducing Fragmentation</div>
+					Let's take a simple example of a 3-variant enum with member sizes 
+					8, 16 and 32 bits. Storing those in a regular <span class="ilc">Vec</span> will look like this:
+
+					<figure>
+						<div class="sidenote">
+						<b>Figure 2:</b> 
+						Here every element reserves a large amount of space to accommodate the 32-bit variant and to satisfy its alignment. 
+						</div>
+						<div class="blog-img">
+							<img alt="A visualization of an array of enum values, with varying fragmentation levels per element" src="../static/dense-enums/layout1.webp" style="max-height: 300px">
+						</div>
+					</figure>
+
+					<p>
+					The most common way to improve packing efficiency is by just keeping the enum variants as small as possible using tagged indices (*). 
+					<div class="sidenote">
+					(*): For examples in Rust, take a look at the <a href="https://doc.rust-lang.org/stable/nightly-rustc/rustc_data_structures/tagged_ptr/index.html#">tagged_index crate</a> used in the compiler 
+					or check out this recent <a href="https://mcyoung.xyz/2023/08/09/yarns/">blog post on small-string optimization</a>. 
+					You'll find these optimizations all the time in high-performance code 
+					like language runtimes, garbage collectors, compilers, game engines or OS kernels.
+					</div>
+					</p>
+
+					<p>
+					Unfortunately, that doesn't completely solve the fragmentation issue. The other way is to tackle the container type directly! We could use a struct-of-arrays approach to store discriminant and value in two separate allocations. In fact, that's what the self-hosted Zig compiler actually does.
+					</p>
+
+					<figure>
+						<div class="sidenote">
+						<b>Figure 3:</b> 
+						The tags and union values are stored in two separate allocations, so we're not paying for padding anymore. However, the union collection still has variant fragmentation. 
+						</div>
+						<div class="blog-img">
+							<img alt="A struct-of-arrays transformation of an enum array" src="../static/dense-enums/layout2.webp" style="max-height: 280px">
+						</div>
+					</figure>
+
+					<p>
+					Because of Zig's staged compilation, we can have container types that 
+					perform this SoA transformation generically for any type. In Rust, 
+					we're constrained to proc-macros like <span class="ilc">soa_derive</span> 
+					which has several downsides (e.g. we can't place <span class="ilc">#[derive]</span> 
+					on third-party types without changing their source).
+					</p>
+
+					<div class="blog-subtitle">Reducing Variant Fragmentation</div>
+					This SoA transformation reduces a lot of wasted padding introduced by 
+					the enum tag, but still isn't optimal. To really get rid of fragmentation 
+					in the values, we can create one vector <i>per variant</i>. 
+
+					<figure>
+						<div class="sidenote">
+						<b>Figure 4:</b> 
+						Compared to the SoA layout from before, we have a partial order instead of a total order. So upon insertion, we get back a tagged index that holds both the enum tag and the index in the particular variant array. 
+						</div>
+						<div class="blog-img">
+							<img alt="Visualization of a simple AoVA layout" src="../static/dense-enums/layout6.webp" style="max-height: 170px">
+						</div>
+					</figure>
+
+					I don't think there's a name for this collection, so I call it <i>array of variant arrays</i> (or AoVA). This can be implemented in Rust and Zig, using proc-macros and comptime respectively.
+
+					<div class="blog-subtitle">Size Equivalence Classes</div>
+					<p>
+					We could stop here, but let's consider enums that have <i>lots</i> of variants that can be grouped into a small number of clusters with the same type size:
+					<p>
+
+					<div class="blog-cgw" style="flex-wrap: wrap-reverse;">
+<div class="blog-code" style="margin-top: 25px; height: 100%; min-width: 180px;">
+```rust
+enum Foo {
+    A(u8, u8),
+    B(u16),
+    C(u16),
+    D([u8; 2]),
+    E(u32),
+    F(u16, u16),
+    G(u32),
+    H(u32),
+    I([u8; 4]),
+    J(u32, u32),
+    K(u32, (u16, u16)),
+    L(u64),
+    M(u64),
+    N(u32, u16, u16),
+    O([u8; 8])
+}
+```
+</div>
+					<figure style="min-width: 300px; width: 0; flex-grow: 3; flex-basis: 470px;">
+						<div class="blog-img">
+							<img alt="Naive AoVA layout causes us to create 15 different vectors - one per enum variant" src="../static/dense-enums/layout15.webp" style="max-height: 300px">
+						</div>
+					</figure>
+					</div>
+
+					<p>
+					As you can see, the one-vec-per-variant approach would add 15 vectors. 
+					It's likely that the number of (re)allocations and system calls would
+					increase substantially, and require a lot of memory to amortize
+					compared to the naive <span class="ilc">Vec<Foo></span>. 
+					The vectors may also be arbitrarily spread in memory, 
+					leading to a higher chance of cache conflicts. The AoVA collection itself
+					also consumes a lot of memory, bloating any structure it's embedded in. 
+					</p>
+
+					<p>
+					Now, if we group every variant by size, we get three clusters: 2, 4, and 8 bytes. Such clusters can be allocated together into the same vector - thereby reducing the number of total vectors we have in our container by 80%. So we could realistically store variants of <span class="ilc">Foo</span> in three clusters:
+					</p>
+					<div class="blog-cg">
+<div class="blog-code" style="height: 100%; min-width: 250px;">
+```rust
+struct FooVec {
+    c_2: Vec<[u8; 2]>, // A - D
+    c_4: Vec<[u8; 4]>, // E - I
+    c_8: Vec<[u8; 8]>, // J - O
+}
+```
+</div>
+					<figure style="min-width: 300px; width: 0; flex-grow: 2; margin-top: 0">
+						<div class="blog-img">
+							<img alt="The dense AoVA version reduces our vector count to 3" src="../static/dense-enums/layout5.webp" style="max-height: 180px">
+						</div>
+					</figure>
+					</div>
+
+					<p>
+					You could say this is a <i>dense</i> version of our AoVA pattern. 
+					However, once we colocate different variants in the <i>same allocation</i>,
+					we lose the ability to iterate through the vector in a type-safe way. 
+					The only way to access elements in such a container is via the tagged 
+					pointer that was created upon insertion. If your access pattern does 
+					not require blind iteration (which can be the case for flattened, 
+					index-based tree structures), this might be a worthwhile trade-off.  
+					</p>
+					
+					<p>
+					I've implemented a <a href="https://github.com/dist1ll/osmium">prototype of this data structure in Zig</a>. 
+					The most important pieces are the compiler built-ins that allow reflection on
+					field types, byte and bit sizes, as well as inspecting the discriminant.
+					</p>
+
+					<figure>
+					<div class="sidenote">
+					<b>Snippet:</b> At its core, it performs straightforward compile-time 
+					reflection to compute the clusters and field-to-cluster mappings. We do
+					pseudo-dynamic allocation using a stack-allocated vector. 
+					The cluster information is used to construct the AoVA data structure.  
+					Exact <a href="https://github.com/dist1ll/osmium/blob/127145584fb22b48c05b5dbb14c670001318a81c/src/osmium.zig#L54-L71">source of the snippet is here</a>.
+					</div>
+<div class="blog-code" style="width: 100%;">
+```zig
+// determine kind of type (i.e. struct, union, etc.)
+switch (@typeInfo(inner)) {
+    .Union => |u| {
+        // store mapping from union field -> cluster index
+        var field_map = [_]u8{0} ** u.fields.len;
+
+        // iterate over union fields
+        for (u.fields, 0..) |field, idx| {
+            // compute size
+            const space = @max(field.alignment, @sizeOf(field.type));
+
+            // insert into hashtable 
+            if (!svec.contains_slow(space)) {
+                svec.push(space) catch @compileError(ERR_01);
+            }
+
+            field_map[idx] = svec.len - 1;
+        }
+
+        // return clusters
+        return .{ .field_map = field_map, .sizes = svec };
+    },
+    else => @compileError("only unions allowed"),
+}
+```
+</div>
+					</figure>
+
+					<p>
+					If you do want type-safe iteration, you could pay the cost of padding, and add the tag back in:
+					</p>
+
+					<figure>
+						<div class="sidenote">
+						<b>Figure 5:</b> 
+						We've essentially partitioned the enum on the <i>data-level</i>, 
+						leaving the interpretation at the type-level untouched
+						</div>
+						<div class="blog-img">
+							<img alt="Dense AoVA layout with additional tag and padding" src="../static/dense-enums/layout3.webp" style="max-height: 280px">
+						</div>
+					</figure>
+
+					<p>
+					If the padding is too much, you can do an SoA transformation on each of the variant arrays.
+					</p>
+
+					<figure>
+						<div class="sidenote">
+						<b>Figure 6:</b> Here we have a similar partitioning, but without
+						the padding. The downside is that we're doubling the vector count.
+						</div>
+						<div class="blog-img">
+							<img alt="Dense AoVA layout, with tag and per-cluster SoA transformation" src="../static/dense-enums/layout4.webp" style="max-height: 280px">
+						</div>
+					</figure>
+
+					<p>
+					So as you can see, there's quite a few trade-offs we can make in this space - 
+					and they all depend on the concrete memory layout of our enum. 
+					</p>
+
+					<p>
+					While creating such data structures is pretty straightforward in Zig, 
+					creating any of these examples in Rust using proc macros is basically 
+					impossible - the reason being that proc macros don't have access to 
+					type information like size or alignment. While you could have a proc 
+					macro generate a <span class="ilc">const fn</span> that computes the clusters for a particular 
+					enum, this function cannot be used to specify the length of an array 
+					for a <i>generic</i> type.
+					</p>
+
+					<p>
+					Another limit to Rust's generics is that the implementation of a 
+					generic container cannot be conditioned on whether the given type is 
+					an enum or a struct. 
+					In Zig, we can effectively do something like this:
+					</p>
+
+					<figure>
+<div class="blog-code" style="width: 100%;">
+```rust
+// this is pseudocode
+struct EfficientContainer<T> {
+    if(T.isEnum()) {
+        x: EfficientEnumArray<T>,
+    } else {
+        x: EfficientStructArray<T>,
+    }
+}
+```
+</div>
+					</figure>
+					<p>
+					We can also specialize the flavor of our AoVA implementation based on the enum. Maybe the benefits of colocating different variants only starts to make sense if we reduce the number of vectors by more than 90%. 
+					</p>
+					
+					<p>
+					So ultimately we gain a lot of fine-grained control over data structure selection. And if we have good heuristics, we can let the type-aware staging mechanism select the best implementation for us. To me, this represents a huge step in composability for high-performance systems software. 
+					</p>
+
+					<div class="blog-subtitle">Bonus: Determining Index Bitwidth at Compile Time</div>
+					<p>
+					While implementing my prototype, I noticed other ways of saving memory.
+					For instance, if you know the maximum capacity of your data structure 
+					at compile time, you can pass that information to the type-constructing function
+					and let it determine the bitwidth of the returned tagged index.
+					</p>
+
+					<p>
+					When this tagged index is included in a subsequent data structure, let's say another enum, this information carries over naturally, and the bits that we didn't need can be used for the discriminant!
+					</p>
+
+					<p>
+					So what Zig gives you is <i>composable</i> memory efficiency. By being 
+					specific about the number of bits you need, different parts of the code 
+					can take advantage of that. And with implicit widening integer coercion, 
+					dealing with APIs of different bitwidths stays ergonomic. In a way, 
+					this reminds me a lot of refinement typing and ranged integers, so this 
+					ties in a lot with my <a href="https://alic.dev/blog/custom-bitwidth">post on custom bitwidth integers</a>. 
+					</p>
+					
+					<div class="blog-subtitle">Conclusion</div>
+					Writing extremely efficient generic data structures in Rust is not 
+					always easy - in some cases they incur lots of accidental complexity, 
+					in some others they're essentially impossible to implement. I think 
+					one of the biggest takeaways for me with regards to staged compilation 
+					was the ability to be composable on a memory layout level. If you're 
+					developing a systems programming language that embraces efficiency and 
+					zero-cost abstractions, you should absolutely take another look at 
+					staged programming and in particular Zig's comptime.
+					<!-- +++++++++ -->
+				</div>
+			</div>
+		</div>
+	</body>
+</html>

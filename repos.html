@@ -1,0 +1,103 @@
+
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>Adrian Alic - Blogging about High-Performance Systems</title>
+		<link rel="canonical" href="https://alic.dev/repos"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
+		<meta charset="UTF-8">
+		<meta name="description" content="An overview of free, open-source software I'm working on.">
+		<meta name="theme-color" content="#000000">
+		<link rel="canonical" href="https://alic.dev/repos.html"/>
+		<link rel="stylesheet" href="style.css">
+		<link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+		<link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
+		<link rel="apple-touch-icon" href="apple-touch-icon.png">
+		<style>
+		@font-face {
+			font-family: 'Computer Modern'; src: url('static/fonts/cmu1.woff2') format('woff2');
+			font-weight: 400; font-style: normal; font-display: swap;
+		}
+		@font-face {
+			font-family: 'Computer Modern'; src: url('static/fonts/cmu2.woff2') format('woff2');
+			font-weight: 400; font-style: italic; font-display: swap;
+		}
+		@font-face {
+			font-family: 'Computer Modern'; src: url('static/fonts/cmu3.woff2') format('woff2');
+			font-weight: 700; font-style: normal; font-display: swap;
+		}
+		</style>
+	</head>
+
+
+	<body>
+	<div id="app">
+		<div id="content">
+			<div id="header">
+							<a class="header-def" href="index.html" style="margin-left: 5px;">Blog</a>
+							<a class="header-sel" href="repos.html">Repos</a>
+							<a class="header-def" href="https://github.com/dist1ll">Github</a>
+							<a class="header-def" href="https://www.linkedin.com/in/dist1ll/">Linkedin</a>
+			</div>
+			<div id="category" style="padding-bottom: 20px;">
+						<div id="category-content">
+							Below you'll find a list of my free open-source repositories. 
+							If you find issues or bugs with
+							my software, feel free to open a ticket or write an email to 
+							contact@alic[dot]dev.
+						</div>
+			</div>
+		
+			<div class="category">
+				<div id="repo-container">
+
+					<div class="repo-row">
+						<b>wfmpsc</b>:
+						<a class="repo-link" href="https://github.com/dist1ll/wfmpsc">[github]</a>
+						<a class="repo-link" href="https://youtu.be/XKODaZgKcnE">[talk]</a>
+						<a class="repo-link" href="https://alic.dev/slides/concurrent_data_structures.pdf">[slides]</a>
+						<br> Wait-free, cache-aware MPSC
+						queue for serial output in Rust
+					</div>
+
+					<div class="repo-row">
+						<b>osmium</b>:
+						<a class="repo-link" href="https://github.com/dist1ll/osmium">[github]</a>
+						<a class="repo-link" href="./blog/dense-enums.html">[article]</a>
+						<br> A library for dense, memory-efficient tagged union arrays in Zig
+					</div>
+
+					<div class="repo-row">
+						<b>memset</b>:
+						<a class="repo-link" href="https://github.com/dist1ll/memset">[github]</a>
+						<br> Multithreaded memcpy benchmark comparing FSRM, AVX2 & NT stores
+					</div>
+
+					<div class="repo-row">
+						<b>asmbench</b>:
+						<a class="repo-link" href="https://github.com/dist1ll/asmbench">[github]</a>
+						<br> Microbenchmark for streaming searches using AVX2
+					</div>
+
+					<div class="repo-row">
+						<b>hltv-rust</b>:
+						<a class="repo-link" href="https://github.com/dist1ll/hltv-rust">[github]</a>
+						<a class="repo-link" href="https://crates.io/crates/hltv">[crates.io]</a>
+						<br> Web scraper and parser for HLTV match data
+					</div>
+
+					<div class="repo-row">
+						<b>githooks</b>:
+						<a class="repo-link" href="https://github.com/dist1ll/githooks">[github]</a>
+						<br> Collection of various git hooks and utilities that I use daily
+					</div>
+
+				</div>
+			</div>
+				
+								
+		</div>
+	</div>
+	</body>
+
+</html>
