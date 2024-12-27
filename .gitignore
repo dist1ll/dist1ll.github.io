@@ -1,6 +1,8 @@
+*.DS_store
 _site
 .sass-cache
 .jekyll-metadata
-improving-centralization-via-decentralization.html
+
+prototype/
 
 .notes

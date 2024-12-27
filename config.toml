@@ -1,0 +1,29 @@
+theme = "everforest_light"
+
+[keys.normal]
+t = "find_next_char"
+T = "find_prev_char"
+f = ":format"
+"tab" = ":bn"
+"S-tab" = ":bp"
+"space" =  { f = "file_picker_in_current_directory", F = "file_picker" }
+
+[keys.insert]
+"esc" = [":w", "normal_mode"]
+
+[editor]
+idle-timeout = 0
+completion-trigger-len = 3
+rulers = [90]
+auto-format = false
+true-color = true
+
+[editor.whitespace.render]
+space = "all"
+tab = "all"
+newline = "none"
+
+[editor.cursor-shape]
+insert = "bar"
+normal = "block"
+select = "block"

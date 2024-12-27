@@ -1,0 +1,24 @@
+font:
+  normal:
+    family: 'Intel One Mono'
+colors:
+  primary: 
+    # light theme
+    background: '#fff9e8'
+    foreground: '#4c5a62'
+
+    # dark theme
+    # foreground: '#b0b0b0'
+    # background: '#2d2a2e'
+window:
+  dynamic_title: false
+  decorations: Full
+  position:
+    x: 30
+    y: 50
+  dimensions:
+    columns: 150
+    lines: 40
+  padding:
+    y: 5
+    x: 5

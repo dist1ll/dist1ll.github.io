@@ -1,0 +1,87 @@
+<feed xmlns="http://www.w3.org/2005/Atom">
+<id>https://alic.dev/</id>
+<title type="text">Adrian Alic's Blog</title>
+<link rel="alternate" type="text/html" href="https://alic.devh"/>
+<link rel="self" type="application/atom+xml" href="https://alic.dev/feed.xml"/>
+<updated>2024-04-03T00:00:00Z</updated>
+<logo>https://alic.dev/logo.svg</logo>
+<icon>https://alic.dev/logo.svg</icon>
+
+
+<entry>
+  <title type="text">When Zig Outshines Rust - Memory Efficient Enum Arrays</title>
+  <link rel="alternate" type="text/html" href="https://alic.dev/blog/dense-enums.html"/>
+  <published>2023-09-18T00:00:00Z</published>
+  <updated>2023-09-18T00:00:00Z</updated>
+  <author>
+  <name>Adrian Alic</name>
+  <email>contact@alic.dev</email>
+  </author>
+  <id>https://alic.dev/blog/dense-enums.html</id>
+  <summary type="html">
+    Proper support for sum types or tagged unions have become table stakes for 
+    systems programming languages. However, they can incur a lot of memory 
+    fragmentation that's not trivial to avoid without good support for metaprogramming. 
+    This post goes into Zig's powerful comptime feature, and how it allows some 
+    radical approaches to efficient data structure design. 
+  </summary>
+</entry>
+
+<entry>
+  <title type="text">Beating the Fastest Lexer Generator in Rust</title>
+  <link rel="alternate" type="text/html" href="https://alic.dev/blog/fast-lexing.html"/>
+  <published>2023-06-30T00:00:00Z</published>
+  <updated>2024-04-03T00:00:00Z</updated>
+  <author>
+  <name>Adrian Alic</name>
+  <email>contact@alic.dev</email>
+  </author>
+  <id>https://alic.dev/blog/fast-lexing.html</id>
+  <summary type="html">
+    In this post I take a look at a popular Rust crate for generating lexers
+    called logos. One of its goals is to compile regex specifications down to 
+    a jump-table FSM that is supposedly faster than anything you'd write by hand. 
+    This claim nerd-sniped me into writing a hand-rolled SIMD lexer, against
+    which I'll put logos to the test.
+  </summary>
+</entry>
+
+<entry>
+  <title type="text">On Custom-Width Integer Types</title>
+  <link rel="alternate" type="text/html" href="https://alic.dev/blog/custom-bitwidth.html"/>
+  <published>2023-05-09T00:00:00Z</published>
+  <updated>2023-05-12T00:00:00Z</updated>
+  <author>
+  <name>Adrian Alic</name>
+  <email>contact@alic.dev</email>
+  </author>
+  <id>https://alic.dev/blog/custom-bitwidth.html</id>
+  <summary type="html">
+    Custom-width integers are an interesting language feature. They open the 
+    door to several efficiency optimizations - both in hardware and software. 
+    In this post I'll be making an argument in favor of custom-width integers,
+    and why modern systems programming languages should absolutely have them. 
+  </summary>
+</entry>
+
+<entry>
+  <title type="text">Measuring the Impact of False Sharing</title>
+  <link rel="alternate" type="text/html" href="https://alic.dev/blog/false-sharing.html"/>
+  <published>2023-01-28T00:00:00Z</published>
+  <updated>2024-04-03T00:00:00Z</updated>
+  <author>
+  <name>Adrian Alic</name>
+  <email>contact@alic.dev</email>
+  </author>
+  <id>https://alic.dev/blog/false-sharing.html</id>
+  <summary type="html">
+      I recently began writing a bounded, wait-free MPSC queue in Rust. A very common
+      advice for ring-buffer based implemenations is to prevent the 
+      tails and heads from mapping to the same cache line. In this article, I would 
+      like to find out the concrete 
+      performance penalty of false sharing for my data structure by performing tests on
+      both ARM (Apple Silicon) and x86 (Intel/AMD) processors.
+  </summary>
+</entry>
+
+</feed>

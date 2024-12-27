@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>Measuring the impact of false sharing</title>
+		<link rel="canonical" href="https://alic.dev/blog/false-sharing" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
+		<meta charset="UTF-8">
+		<meta name="description" content="I recently began writing a bounded, wait-free MPSC queue in Rust. A very common advice for ring-buffer based implemenations is to prevent the tails and heads from mapping to the same cache line. In this article, I would like to find out the concrete performance penalty of false sharing for my data structure by performing tests on both ARM (Apple Silicon) and x86 (Intel/AMD) processors.">
+		<meta name="theme-color" content="#000000">
+		<link rel="icon" type="image/png" sizes="32x32" href="../favicon-32x32.png">
+		<link rel="icon" type="image/png" sizes="16x16" href="../favicon-16x16.png">
+		<link rel="stylesheet" href="../style.css">
+		<link rel="stylesheet" href="../blogstyle.css">
+		<script defer src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.3.0/chart.umd.min.js" integrity="sha512-TJ7U6JRJx5IpyvvO9atNnBzwJIoZDaQnQhb0Wmw32Rj5BQHAmJG16WzaJbDns2Wk5VG6gMt4MytZApZG47rCdg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+		<link as="font" href="../static/fonts/cmu1.woff2" rel="preload" type="font/woff2">
+		<link as="font" href="../static/fonts/cmu2.woff2" rel="preload" type="font/woff2">
+		<link as="font" href="../static/fonts/cmu3.woff2" rel="preload" type="font/woff2">
+
+		<style>
+		@font-face {
+			font-family: 'Computer Modern'; src: url('../static/fonts/cmu1.woff2') format('woff2');
+			font-weight: 400; font-style: normal; font-display: swap;
+		}
+		@font-face {
+			font-family: 'Computer Modern'; src: url('../static/fonts/cmu2.woff2') format('woff2');
+			font-weight: 400; font-style: italic; font-display: swap;
+		}
+		@font-face {
+			font-family: 'Computer Modern'; src: url('../static/fonts/cmu3.woff2') format('woff2');
+			font-weight: 700; font-style: normal; font-display: swap;
+		}
+		.canvas-parent {
+			display: flex; flex-direction: row; flex-wrap: wrap; justify-content: space-between;
+			margin: 10px 0 20px 0;
+		}
+		.canvas-child { flex: 1; margin: 0 25px 0 0; min-width: 230px; height: 300px; }
+		</style>
+	<style>
+
+.chroma .err { color: #a61717; background-color: #e3d2d2 }
+.chroma .lnlinks { outline: none; text-decoration: none; color: inherit }
+.chroma .lntd { vertical-align: top; padding: 0; margin: 0; border: 0; }
+.chroma .lntable { border-spacing: 0; padding: 0; margin: 0; border: 0; }
+.chroma .hl { background-color: #e5e5e5 }
+.chroma .lnt { white-space: pre; -webkit-user-select: none; user-select: none; margin-right: 0.4em; padding: 0 0.4em 0 0.4em;color: #7f7f7f }
+.chroma .ln { white-space: pre; -webkit-user-select: none; user-select: none; margin-right: 0.4em; padding: 0 0.4em 0 0.4em;color: #7f7f7f }
+.chroma .line { display: flex; }
+.chroma .k,
+.chroma .kc,.chroma .kd,
+.chroma .kn,.chroma .kp,
+.chroma .kr { color: #000000; font-weight: bold }
+.chroma .kt { color: #445588; font-weight: bold }
+.chroma .na { color: #008080 }
+.chroma .nb { color: #0086b3 }
+.chroma .bp { color: #999999 }
+.chroma .nc { color: #445588; font-weight: bold }
+.chroma .no { color: #008080 }
+.chroma .nd { color: #3c5d5d; font-weight: bold }
+.chroma .ni { color: #800080 }
+.chroma .ne,.chroma .nf,
+.chroma .nl { color: #990000; font-weight: bold }
+.chroma .nn { color: #555555 }
+.chroma .nt { color: #000080 }
+.chroma .nv { color: #008080 }
+.chroma .vc { color: #008080 }
+.chroma .vg { color: #008080 }
+.chroma .vi { color: #008080 }
+.chroma .s,.chroma .sa,
+.chroma .sb,.chroma .sc,
+.chroma .dl,.chroma .sd,
+.chroma .s2,.chroma .se,
+.chroma .sh,.chroma .si,
+.chroma .sx,.chroma .s1,
+.chroma .sr,.chroma .ss { color: #990073 }
+.chroma .m,.chroma .mb,
+.chroma .mf,.chroma .mh,
+.chroma .mi,.chroma .il,
+.chroma .mo { color: #009999 }
+.chroma .o { color: #000000; font-weight: bold }
+.chroma .ow { color: #000000; font-weight: bold }
+.chroma .c,.chroma .ch,.chroma .cm,
+.chroma .c1 { color: #999988; font-style: italic }
+.chroma .cs,.chroma .cp,
+.chroma .cpf { color: #999999; font-weight: bold; font-style: italic }
+.chroma .gd { color: #000000; background-color: #ffdddd }
+.chroma .ge { color: #000000; font-style: italic }
+.chroma .gr { color: #aa0000 }
+.chroma .gh { color: #999999 }
+.chroma .gi { color: #000000; background-color: #ddffdd }
+.chroma .go { color: #888888 }
+.chroma .gp { color: #555555 }
+.chroma .gs { font-weight: bold }
+.chroma .gu { color: #aaaaaa }
+.chroma .gt { color: #aa0000 }
+.chroma .gl { text-decoration: underline }
+.chroma .w { color: #bbbbbb }
+</style></head>
+	<body>
+		<div id="app">
+			<div id="content">
+				<div id="header">
+						<a class="header-sel" href="https://alic.dev" style="margin-left: 5px;">Blog</a>
+						<a class="header-def" href="https://alic.dev/repos.html">Repos</a>
+						<a class="header-def" href="https://github.com/dist1ll">Github</a>
+						<a class="header-def" href="https://www.linkedin.com/in/dist1ll/">Linkedin</a>
+				</div>
+				<div id="blog-title">Measuring the impact of false sharing</div>
+				<div class="blog-date">January 2023 - RSS<a href="../feed.xml"><img class="blog-rss"></a></div>
+				<div id="blog-content">
+					I recently began writing a bounded, wait-free, multi-producer 
+					single-consumer (MPSC) queue. 
+					An often cited wisdom for ring-buffer based implementations goes as follows: 
+
+					<div class="blog-quote">
+					Don't pack tail or head 
+					indices of each queue together into a struct, without padding each index 
+					to a cache line. Otherwise, the cache-coherency traffic due to false 
+					sharing will drastically reduce your performance!
+					</div>
+					
+					In this article, I would like to find out the concrete performance 
+					penalty of false sharing for my data structure. I'll be measuring 
+					the effects on both ARM (Apple Silicon) and x86 (Intel/AMD) processors.
+
+					<div class="blog-subtitle">What is False Sharing</div>
+					Assume that we're operating in a shared-memory, multi-processor system, 
+					and perform concurrent reads and writes to our main memory. In the 
+					simplest case, a memory controller will determine a global order of
+					 operations, and make any change to the shared memory immediately 
+					visible to all other processors. In reality though, CPUs make use 
+					of local cache hierarchies, causing possibly stale data to reside in 
+					different cache domains.
+
+					<figure>
+						<div class="sidenote">
+							<b>Figure 1</b>: A very(!) simplified sketch of a cache-coherent NUMA CPU. 
+							Processor cores have their own L1 and L2 cache, followed by a 
+							shared last-level cache (L3). Depending on the architecture, 
+							the next-closest memory device may be a DRAM controller belonging 
+							to a NUMA node, and then some type of interconnect fabric to 
+							share memory between NUMA nodes as well as CPU sockets.
+						</div>
+						<div class="blog-img">
+							<img alt="Simplified visualization of ccNUMA machine" src="../static/false-sharing/ccnuma.webp" style="max-height: 400px">
+						</div>					
+					</figure>
+
+					<p>
+					Without some global ordering guarantees, writing meaningful concurrent 
+					algorithms becomes pretty much impossible. 
+					To resolve this, CPUs employ a microarchitectural cache coherence 
+					protocol that (1) propagates writes to all other processors and (2) 
+					serializes writes to the same memory location, so that they are observed 
+					in the same global order by every processor.
+					</p>
+
+					<span class="sidenote">
+						<b>Note:</b> Cache coherency is part of a CPUs memory model and 
+						always architecture or ISA specific. Furthermore, operating systems 
+						and programming languages may define their own memory models to abstract
+						over a variety of hardware. The 
+						C/C++11 <a href="https://en.cppreference.com/w/cpp/atomic/memory_order">
+						memory ordering specification</a> 
+						is one such example.
+					</span>
+
+					<p>
+					Most CPUs follow an invalidation-based protocol like 
+					<a href="https://en.wikipedia.org/wiki/MESI_protocol">MESI</a>, usually
+					equipped with an additional state for making certain operations more
+					efficient via cache-to-cache transfers. 
+					For these protocols, writing to an address generally invalidates all 
+					other processors' cache lines that contained this addresses value, 
+					thereby forcing the affected processors to pull the latest value 
+					from a lower memory level (last-level cache or main memory) 
+					on the next read in the worst case. This can 
+					strongly degrade performance, and can cause a poorly-implemented 
+					multithreaded system to perform worse than its single-threaded 
+					counterpart. For a real example, refer to chapter 7.3 of the
+					<a href="https://www.amd.com/content/dam/amd/en/documents/processor-tech-docs/programmer-references/24593.pdf">
+					AMD64 architecture manual</a>, which covers their MOESDIF 
+					(<b>M</b>odified, <b>O</b>wned, <b>E</b>xclusive, <b>S</b>hared,
+					<b>D</b>irty, <b>I</b>nvalid, <b>F</b>orward) cache 
+					coherence protocol.
+					</p>
+
+					<span class="sidenote">
+						<b>Update:</b> As noted by David Chisnall, if the writing processor 
+						did not perform a previous load on a cache line, cache coherency 
+						protocols may sometimes employ remote stores instead of invalidation.
+						This means that the value is sent to the remote
+						processor over the interconnect, updating the value in-place.
+					</span>
+					
+					<p>
+					Intuitively, it makes sense that lots of processors reading and writing 
+					concurrently to the same address would cause a performance bottleneck. 
+					This problem is known as true sharing, and is quite easy to identify. 
+					False sharing on the other hand is more insidious. It's a type of 
+					performance degradation where multiple processors write to <b>different</b>
+					memory addresses concurrently, but still cause lots of cache coherency
+					traffic. How is that possible if they are writing to different memory
+					addresses? 
+					</p>
+
+					The reason is that the cache coherence protocol is rough-grained and
+					invalidates <i>an entire cache line</i> on any write, so that updating 8 bytes 
+					of data (size of an unsigned 64-bit integer) also invalidates 56 
+					neighboring bytes. 
+
+					<figure>
+						<div class="sidenote">
+							<b>Figure 2</b>: False sharing in action. Two threads update two 
+							unrelated objects, but the addresses are close enough to map 
+							into the same cache line. The cache coherence protocol will 
+							invalidate the cache line in one of the two processors. 
+						</div>
+						<div class="blog-img">
+							<img src="../static/false-sharing/false-sharing.webp">
+						</div>					
+					</figure>
+					
+					<p>
+					So even though 2 distinct objects are updated by two different 
+					processors, we see a <i>similar</i> level of performance degradation 
+					as with true sharing, as long as these objects map to the same 
+					cache line.
+					</p>
+					The most egregious offenders are densely packed structs, with each 
+					variable being accessed by another thread. This gives you a false 
+					illusion of data independence and parallelism.
+					
+					<div class="blog-cg">
+<div class="blog-code">
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="cp">#[</span><span class="cp">repr(C)</span><span class="cp">]</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="k">pub</span><span class="w"> </span><span class="k">struct</span> <span class="nc">State</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">t1</span>: <span class="kt">u64</span><span class="p">,</span><span class="w"> </span><span class="c1">// only accessed by thread #1
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="w">    </span><span class="n">t2</span>: <span class="kt">u64</span><span class="p">,</span><span class="w"> </span><span class="c1">// only accessed by thread #2
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="w">    </span><span class="n">t3</span>: <span class="kt">u64</span><span class="p">,</span><span class="w"> </span><span class="c1">// only accessed by thread #3
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="p">}</span><span class="w">
+</span></span></span></code></pre>
+</div></div>
+					<p>
+					Depending on the alignment of <span class="ilc">State</span>, all three values will likely 
+					map to the same cache line. To avoid this, you generally align variables 
+					to a cache line using either macros or padding fields*. 
+					<span class="sidenote">
+					(*): Padding fields like this is very common in multithreading libraries
+					or kernel code.  
+					In the Linux kernel for example, this is done with the macro
+					<span class="ilc">__cacheline_aligned_in_smp</span>. 
+					You can see it used for the struct <span class="ilc">bpf_ringbuf</span> 
+					in <span class="ilc">/bpf/ringbuf.c</span>.
+					</span>
+					</p>
+
+					By now it's pretty clear that we should definitely avoid false sharing; 
+					all that's left is measuring the actual performance gain of cache 
+					line alignment.
+					
+					<div class="blog-subtitle">The Data Structure: MPSC Queue</div>
+
+					<p>
+					To measure the impact of false sharing, we will perform experiments on 
+					a wait-free, bounded, multi-producer single-consumer queue. It's a 
+					data structure that allows multiple concurrent threads to push data 
+					into a single data stream, which can be read by a consumer thread. 
+					The way these concurrent write operations are merged into a single 
+					consumable stream differs between implementations.
+					</p>
+					In our case, producers are pushing data into their own thread-local 
+					FIFO ring buffer, which is regularly polled and emptied by the consumer 
+					thread. When the queue is full, new data from producers are discarded 
+					(partial write / fail on overflow according to  
+					<a href="https://www.1024cores.net/home/lock-free-algorithms/queues">
+					this classification</a>).
+
+					<figure>
+						<div class="sidenote">
+							<b>Figure 3</b>: A rough sketch of our MPSC queue. The red blocks 
+							represent variable-sized byte chunks. My implementation was 
+							actually designed for a multithreaded tracing and debugging 
+							library for my RISC-V kernel. 
+						</div>
+						<div class="blog-img">
+							<img src="../static/mpsc/dsdesign.webp" style="max-height: 350px;">
+						</div>
+					<figure>
+					<p>
+					Now the memory layout. The data structure consists of (1) an array of 
+					thread-local buffers, represented as a single contiguous backing array 
+					and (2) an offset table that stores 
+					<span class="ilc">head</span> and <span class="ilc">tail</span> offsets of each
+					individual queue. For the purposes of this blog post, the offset table 
+					is our main concern. Because whenever producers OR consumer push or 
+					pop data off these queues, they perform atomic load/store operations 
+					with release/acquire semantics on what are essentially pointers. 
+					</p>
+					
+					The producer <span class="ilc">p</span> is the only thread that is allowed to modify the p-th 
+					<span class="ilc">head</span> offset, using the 
+					<span class="ilc">push</span> operation. Similarly, the consumer
+					has exclusive write permission for any 
+					<span class="ilc">tail</span> via <span class="ilc">pop</span>. 
+					This means we 
+					have no competing store operations (and thus no atomic RMW sequences 
+					like compare-and-swap or LL/SC).
+					Great! Except, as we've seen before, 
+					independent store operations may still degrade performance due to 
+					false sharing. 
+
+					<figure>
+						<div class="sidenote">
+							<b>Figure 4</b>: The same false sharing scenario, this time adopted for 
+							our MPSC Queue. Producers and consumer can safely modify the 
+							tail/head offsets, as they have exclusive write access to it. 
+							However, if we pack these offsets into a dense structure, 
+							we'll incur a cache coherency penalty 
+						</div>
+						<div class="blog-img">
+							<img src="../static/false-sharing/fs-mpsc.webp">
+						</div>			
+					</figure>
+					
+					Now that we've identified how false sharing affects us, let's revisit 
+					the premise of this post:
+
+					<div class="blog-quote">
+					Don't pack tail or head 
+					indices of each queue together into a struct, without padding each index 
+					to a cache line. Otherwise, the cache-coherency traffic due to false 
+					sharing will drastically reduce your performance!
+					</div>					
+					
+					With this advice in mind, we can consider three different ways of laying 
+					out our offset table in memory: packed, 
+					padded and a hybrid of those two.
+					
+					<figure>
+						<div class="sidenote">
+							<b>Figure 5</b>: Different versions of our offset table. We can pack 
+							them tightly (1), add padding to align them to a cache line 
+							(2), or only apply padding to heads (3). I was curious about
+							this last hybrid approach, because the consumer updates all 
+							tails at the same time, and may be able to make batch updates 
+							with 128-bit atomic stores, which only works when they're 
+							packed in memory. 
+						</div>
+						<div class="blog-img">
+							<img src="../static/false-sharing/offset-versions.webp" style="max-height: 420px">
+						</div>					
+					</figure>
+					
+					For now, the subject of our benchmarking suite will be the 
+					<span class="ilc">packed</span> and <span class="ilc">hybrid</span> versions. 
+					The concrete benchmarking setup and workloads are described in detail 
+					in the following chapter. Note that in order to accurately measure 
+					false sharing, the heads and tails in the packed version each need 
+					to fit into a single 64B cache line. This is why the benchmark
+					implementation is using 16-bit atomic integers for heads and tails, 
+					allowing up to 32 concurrent producers.
+					
+					<div class="blog-subtitle">Benchmarking Setup</div>
+					
+					Our workload allocates a queue, spawns <span class="ilc">p</span> 
+					producer threads (initially gated by a semaphore), and 
+					lets producers push a total of 1Mb into a 15-bit wide queue. The 
+					task is considered done when all producers successfully completed 
+					their (partial) write operations. I controlled for the two following parameters:
+					<ul>
+						<li>p: number of producers, depending on CPU</li>
+						<li>d: number of dummy instructions inserted between 
+						queue ops, values = [0, 500]</li>
+					</ul>
+
+					The dummy instructions are a more fine-grained way to reduce queue 
+					contention, because (1) there's a large minimum overhead of putting 
+					a thread to sleep and (2) we don't have access to the OS scheduler,
+					 making our tests less deterministic. The payload for the push operation
+					is set to 1 byte, because we don't want memcpy to dominate our benchmark.
+
+					<div class="blog-subtitle">Results and Evaluation</div>
+					I tested the benchmarking suite on a mix of laptop, desktop and server-grade hardware:
+					<ul>
+						<li>Apple M1 Pro, 10 cores, bare-metal, macOS</li>
+						<li>Intel i5-9600k, 4 cores, bare-metal, Windows</li>
+						<li>AMD EPYC, 30 cores, KVM, Linux</li>
+						<li>Intel Cascade Lake, 30 cores, KVM, Linux
+						<a href="https://foss.alic.dev/dist1ll/wfmpsc/raw/branch/main/eval/x64_xeon.info">
+						[lscpu dump]</a></li>
+					</ul>
+
+					<p>
+					The code is written in Rust, and uses the 
+					<span class="ilc">criterion</span>
+					microbenchmarking framework. You can find the code and instructions to 
+					run the benchmark 
+					<a href="https://foss.alic.dev/dist1ll/wfmpsc">
+					here</a> at commit 
+					<span class="ilc">3fcbe5ed2b</span> 
+					(details are in <span class="ilc">BENCH.md</span>, Linux-only). 
+					All benchmarks were compiled and run under 
+					<span class="ilc">rustc 1.68.0-nightly</span>. The
+					<span class="ilc">generate_report.py</span> script will output a 
+					<span class="ilc">report.txt</span> file containing measurements in milliseconds across a 
+					wide variety of parameters. Note that running the entire suite can 
+					take a very long time, because of the combinatorial explosion of 
+					parameters, frequent recompilations, and the high sample count in 
+					the criterion config.
+					</p>
+					
+					<b>Expectations:</b> We generally expect 
+					<span class="ilc">hybrid</span> to outperform 
+					<span class="ilc">packed</span> in most cases and for the difference between them to
+					 become more apparent as we increase the producer count. 
+					The following sections contain figures and descriptions 
+					for each testing platform.
+
+					<div class="blog-subsubtitle">Apple M1 Pro (aarch64, 10 cores, bare-metal, macOS)</div>
+					<figure>
+						<div class="sidenote">
+							<b>Figure 6</b>: Packed vs. hybrid multithreading performance for 
+							two different contention scenarios. Tested on MacBook Pro M1 
+							Pro 2021, 32GB RAM, macOS 12.6.
+						</div>
+						<div class="canvas-parent">
+							<div class="canvas-child"><canvas id="chart1"></canvas></div>
+							<div class="canvas-child"><canvas id="chart2"></canvas></div>
+						</div>
+					</figure>
+
+					<div class="blog-subsubtitle">Intel i5-9600k (x86_64, 6 cores, bare-metal, Windows)</div>
+					<figure>
+						<div class="sidenote">
+							<b>Figure 7</b>: Same benchmark, ran on desktop PC with overclocked 
+							Intel i5-9600k@4GHz and 16GB RAM@3600MHz. While we have less 
+							total cores than the M1, we observe a similar effect.
+						</div>
+						<div class="canvas-parent">
+							<div class="canvas-child"><canvas id="chart3"></canvas></div>
+							<div class="canvas-child"><canvas id="chart4"></canvas></div>
+						</div>
+					</figure>
+
+					<div class="blog-subsubtitle">AMD EPYC Milan (x86_64, 28 cores, KVM, Linux)</div>
+					<figure>
+						<div class="sidenote">
+							<b>Figure 8</b>: Tested on AMD EPYC Milan on a C2D-highcpu instance @ GCP. lscpu
+							says it's a 1 socket, 1 NUMA machine, even though SMT is disabled. Since
+							the EPYC 7B13 is a 16-core processor, I'm going to assume that we're in fact
+							running our benchmarks on two sockets.
+						</div>
+						<div class="canvas-parent">
+							<div class="canvas-child"><canvas id="chart5"></canvas></div>
+							<div class="canvas-child"><canvas id="chart6"></canvas></div>
+						</div>
+					</figure>
+
+					<div class="blog-subsubtitle">Intel Cascade Lake (x86_64, 30 cores, KVM, Linux)</div>
+					<figure>
+						<div class="sidenote">
+							<b>Figure 9</b>: Tested on 2x Intel Xeon (2 sockets, 1 NUMA node each) 
+							on a C2-highcpu instance @ GCP. A dump of lscpu can be found 
+							<a href="https://foss.alic.dev/dist1ll/wfmpsc/raw/branch/main/eval/x64_xeon.info">
+							here</a>.
+						</div>
+						<div class="canvas-parent">
+							<div class="canvas-child"><canvas id="chart7"></canvas></div>
+							<div class="canvas-child"><canvas id="chart8"></canvas></div>
+						</div>
+					</figure>
+
+					<script>
+	const l1 = ['1 Producer', '3 Producers', '5 Producers', '9 Producers'];
+	const l2 = ['1 Producer', '2 Producers', '3 Producers', '5 Producers'];
+	const l3 = ['1 Producer', '4 Producers', '9 Producers', '15 Producers', '27 Producers'];
+	function data(d1, d2, dummy, l) {
+		return {
+	    type: 'bar',
+	    data: {
+	      labels: l,
+	      datasets: [{
+	        label: 'packed',
+	        data: d1,
+	        borderWidth: 1,
+		      borderColor: '#2d8ccc',
+		      backgroundColor: '#9BD0Ff',
+	      },{
+	        label: 'hybrid',
+	        data: d2,
+	        borderWidth: 1,
+		      borderColor: '#c49929',
+		      backgroundColor: '#ffce90',
+	      }
+				]
+	    },
+	    options: {
+	      normalized: true,
+	      animation: false,
+	      maintainAspectRatio: false,
+		    plugins: { 
+					title: { display: true, text: dummy + ' Dummy Instructions' },
+					tooltip: {
+				    callbacks: {
+				      label: (x) => `${x.dataset.label}: ${x.formattedValue}ms`,
+				    },
+				  },
+				},
+	      scales: {
+	        y: {
+	          beginAtZero: true,
+						position: 'left',
+						ticks: {
+	              callback: function(value, index, ticks) {
+	                  return value + 'ms';
+	              }
+	          }
+	        }
+	      }
+	    }
+	  }
+	}
+	function new_chart(c, l, d1, d2, dummy) {
+		const ctx = document.getElementById(c);
+		new Chart(ctx, data(d1, d2, dummy, l));
+	}
+	document.addEventListener('readystatechange', event => {
+      if (event.target.readyState === "complete") {
+					new_chart('chart1', l1, [48.1, 37.3, 52.8, 83.5], [65.5, 24.6, 26.2, 22.0], 0);
+					new_chart('chart2', l1, [202.9, 75.5, 82.0, 92.1], [206.9, 71.6, 71.6, 48.0], 500);
+					new_chart('chart3', l2, [34.7, 27.1, 22.7, 16.9], [22.5, 22.0, 13.4, 7.7], 0);
+					new_chart('chart4', l2, [269.2, 136.3, 93.2, 59.5], [257.0, 127.2, 91.0, 58.9], 500);
+					new_chart('chart5', l3, [49.3, 28.0, 23.3, 20.1, 27.7], [40.3, 26.9, 16.0, 19.9, 19.8], 0);
+					new_chart('chart6', l3, [377.9, 179.1, 92.2, 77.0, 71.5], [364.3, 144.0, 72.2, 44.2, 34.6], 500);
+					new_chart('chart7', l3, [109.5, 39.0, 24.1, 23.9, 18.3], [94.3, 29.6, 19.6, 19.6, 19.6], 0);
+					new_chart('chart8', l3, [409.3, 137.9, 104.3, 103.8, 110.1], [398.3, 120.0, 75.0, 60.6, 43.4], 500);
+      }
+  }); 
+					</script>
+					<p>
+					Overall, we can confirm that the 
+					<span class="ilc">packed</span> layout performs worse across 
+					the board, getting generally incrementally worse with higher thread 
+					count. I found that for the M1 Pro and i5-9600k, the level of simultaneous
+					 cache line accesses is a crucial factor for overall throughput. 
+					This makes sense intuitively, because CPUs have more time to complete 
+					their cache transaction, while the remaining instructions continue to 
+					be executed in parallel. 
+					</p>
+					<p>
+					However, on the server platforms I noticed 
+					some unusual behavior. Starting from >15 producers, we can actually 
+					see very good 
+					<span class="ilc">packed</span> performance when the indices are highly contended. 
+					Even more confusing, once we add dummy instructions (thereby 
+					releasing pressure on the same cache line), the 
+					<span class="ilc">hybrid</span> layout 
+					starts to significantly outperform 
+					<span class="ilc">packed</span>. What is going on here? 
+					Why is false sharing becoming <i>more</i> apparent when we <i>reduce</i> cache 
+					contention? 
+					The likely cause is that these servers
+					are configured as multi-socket and multi-NUMA, and that the specifics
+					of CPU/socket interconnect (which can be intimidatingly complex) 
+					cause this behavior.
+					</p>
+					<div class="blog-subtitle">Conclusion</div>
+
+					<p>
+					We have seen that false sharing due to suboptimal layout has a real, 
+					non-negligible impact on performance for our wait-free data structure 
+					(the quote mentioned in the beginning of this post rings true). 
+					It performs worse than our 
+					<span class="ilc">hybrid</span> layout across all measured 
+					parameters, with the exception of the dual-thread, single-producer 
+					case. We also saw that the 
+					<span class="ilc">hybrid</span> layout scales much better with 
+					the number of concurrent producers (which is one of the goals of a 
+					performant MPSC queue).
+					</p>
+					
+					<p>
+					However, while all measurements lean in favor of 
+					<span class="ilc">hybrid</span>, 
+					the concrete comparative advantage heavily depends on the 
+					CPU architecture, hardware config and cache line contention. 
+					One surprising result on the server platforms is that by <i>increasing</i> 
+					the frequency of cache line accesses to the maximum, we actually 
+					<i>reduce</i> the relative penalty of false sharing, if done across NUMA
+					nodes and multiple sockets.
+					</p>
+
+					<div class="blog-subtitle">Further Reading</div>
+					False sharing, and more generally cache coherence protocols, are 
+					well-understood and thoroughly researched topics. I recommend the 
+					following reading material as a starting off point:
+					<ul>
+						<li>Sorin, Daniel J., Mark D. Hill, and David A. Wood. 
+						"A primer on memory consistency and cache coherence." 
+						<i>Synthesis lectures on computer architecture</i> 6.3 (2011): 1-212.
+						<a href="https://www.morganclaypool.com/doi/pdf/10.2200/S00346ED1V01Y201104CAC016">[PDF]</a>
+						</li>
+						<li>Hennessy, John L., and David A. Patterson. 
+						<i>Computer architecture: a quantitative approach</i>. Elsevier, 2011.
+						<a href="http://acs.pub.ro/~cpop/SMPA/Computer%20Architecture%20A%20Quantitative%20Approach%20(5th%20edition).pdf">
+						[PDF]</a>
+						</li>
+						<li>David, Tudor, Rachid Guerraoui, and Vasileios Trigonakis. 
+						"Everything you always wanted to know about synchronization but were afraid to ask." 
+						<i>Proceedings of the Twenty-Fourth ACM Symposium on Operating Systems Principles</i>. 2013. 
+						<a href="https://sigops.org/s/conferences/sosp/2013/papers/p33-david.pdf">[PDF]</a>
+						</li>
+						<li>Liu, Tongping, and Emery D. Berger. "Sheriff: precise detection and automatic mitigation of false sharing." 
+						<i>Proceedings of the 2011 ACM international conference on Object oriented programming systems languages and applications</i>. 2011. 
+						</li>
+					</ul>
+				</div>
+			</div>
+		</div>
+	</body>
+</html>

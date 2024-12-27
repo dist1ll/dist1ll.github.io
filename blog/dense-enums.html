@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>When Zig outshines Rust - Memory efficient enum arrays</title>
+		<link rel="canonical" href="https://alic.dev/blog/dense-enums"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
+		<meta charset="UTF-8">
+		<meta name="description" content="Proper support for sum types or tagged unions have become table stakes for systems programming languages. However, they can incur a lot of memory fragmentation that's not trivial to avoid without good support for metaprogramming. This post goes into Zig's powerful comptime feature, and how it allows some radical approaches to efficient data structure design. ">
+		<meta name="theme-color" content="#000000">
+		<link rel="icon" type="image/png" sizes="32x32" href="../favicon-32x32.png">
+		<link rel="icon" type="image/png" sizes="16x16" href="../favicon-16x16.png">
+		<link rel="stylesheet" href="../style.css">
+		<link rel="stylesheet" href="../blogstyle.css">
+
+		<link as="font" href="../static/fonts/cmu1.woff2" rel="preload" type="font/woff2">
+		<link as="font" href="../static/fonts/cmu2.woff2" rel="preload" type="font/woff2">
+		<link as="font" href="../static/fonts/cmu3.woff2" rel="preload" type="font/woff2">
+
+		<style>
+		@font-face {
+			font-family: 'Computer Modern'; src: url('../static/fonts/cmu1.woff2') format('woff2');
+			font-weight: 400; font-style: normal; font-display: swap;
+		}
+		@font-face {
+			font-family: 'Computer Modern'; src: url('../static/fonts/cmu2.woff2') format('woff2');
+			font-weight: 400; font-style: italic; font-display: swap;
+		}
+		@font-face {
+			font-family: 'Computer Modern'; src: url('../static/fonts/cmu3.woff2') format('woff2');
+			font-weight: 700; font-style: normal; font-display: swap;
+		}
+		</style>
+	<style>
+
+.chroma .err { color: #a61717; background-color: #e3d2d2 }
+.chroma .lnlinks { outline: none; text-decoration: none; color: inherit }
+.chroma .lntd { vertical-align: top; padding: 0; margin: 0; border: 0; }
+.chroma .lntable { border-spacing: 0; padding: 0; margin: 0; border: 0; }
+.chroma .hl { background-color: #e5e5e5 }
+.chroma .lnt { white-space: pre; -webkit-user-select: none; user-select: none; margin-right: 0.4em; padding: 0 0.4em 0 0.4em;color: #7f7f7f }
+.chroma .ln { white-space: pre; -webkit-user-select: none; user-select: none; margin-right: 0.4em; padding: 0 0.4em 0 0.4em;color: #7f7f7f }
+.chroma .line { display: flex; }
+.chroma .k,
+.chroma .kc,.chroma .kd,
+.chroma .kn,.chroma .kp,
+.chroma .kr { color: #000000; font-weight: bold }
+.chroma .kt { color: #445588; font-weight: bold }
+.chroma .na { color: #008080 }
+.chroma .nb { color: #0086b3 }
+.chroma .bp { color: #999999 }
+.chroma .nc { color: #445588; font-weight: bold }
+.chroma .no { color: #008080 }
+.chroma .nd { color: #3c5d5d; font-weight: bold }
+.chroma .ni { color: #800080 }
+.chroma .ne,.chroma .nf,
+.chroma .nl { color: #990000; font-weight: bold }
+.chroma .nn { color: #555555 }
+.chroma .nt { color: #000080 }
+.chroma .nv { color: #008080 }
+.chroma .vc { color: #008080 }
+.chroma .vg { color: #008080 }
+.chroma .vi { color: #008080 }
+.chroma .s,.chroma .sa,
+.chroma .sb,.chroma .sc,
+.chroma .dl,.chroma .sd,
+.chroma .s2,.chroma .se,
+.chroma .sh,.chroma .si,
+.chroma .sx,.chroma .s1,
+.chroma .sr,.chroma .ss { color: #990073 }
+.chroma .m,.chroma .mb,
+.chroma .mf,.chroma .mh,
+.chroma .mi,.chroma .il,
+.chroma .mo { color: #009999 }
+.chroma .o { color: #000000; font-weight: bold }
+.chroma .ow { color: #000000; font-weight: bold }
+.chroma .c,.chroma .ch,.chroma .cm,
+.chroma .c1 { color: #999988; font-style: italic }
+.chroma .cs,.chroma .cp,
+.chroma .cpf { color: #999999; font-weight: bold; font-style: italic }
+.chroma .gd { color: #000000; background-color: #ffdddd }
+.chroma .ge { color: #000000; font-style: italic }
+.chroma .gr { color: #aa0000 }
+.chroma .gh { color: #999999 }
+.chroma .gi { color: #000000; background-color: #ddffdd }
+.chroma .go { color: #888888 }
+.chroma .gp { color: #555555 }
+.chroma .gs { font-weight: bold }
+.chroma .gu { color: #aaaaaa }
+.chroma .gt { color: #aa0000 }
+.chroma .gl { text-decoration: underline }
+.chroma .w { color: #bbbbbb }
+</style></head>
+	<body>
+		<div id="app">
+			<div id="content">
+				<div id="header">
+						<a class="header-sel" href="https://alic.dev" style="margin-left: 5px;">Blog</a>
+						<a class="header-def" href="https://alic.dev/repos.html">Repos</a>
+						<a class="header-def" href="https://github.com/dist1ll">Github</a>
+						<a class="header-def" href="https://www.linkedin.com/in/dist1ll/">Linkedin</a>
+				</div>
+				<div id="blog-title">When Zig outshines Rust - Memory efficient enum arrays</div>
+				<div class="blog-date">Sep 2023 - RSS<a href="../feed.xml"><img class="blog-rss"></a></div>
+				
+				<div id="blog-content">
+					
+					Enums (or tagged unions) whose variants vary in size are prone to significant 
+					memory fragmentation in Rust. That's because we need to allocate enough 
+					data to accommodate the largest variant.
+
+					<figure>
+						<div class="sidenote">
+						<b>Figure 1:</b> Consider the following enum:
+<div class="blog-code">
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="k">pub</span><span class="w"> </span><span class="k">enum</span> <span class="nc">Foo</span><span class="w"> </span><span class="p">{</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="n">A</span><span class="p">(</span><span class="kt">u8</span><span class="p">)</span><span class="p">,</span><span class="w"> 
+</span></span></span><span class="line"><span class="cl"><span class="w">  </span><span class="n">B</span><span class="p">(</span><span class="kt">u16</span><span class="p">)</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">  </span><span class="n">C</span><span class="p">(</span><span class="kt">u32</span><span class="p">)</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">  </span><span class="n">D</span><span class="p">(</span><span class="kt">u64</span><span class="p">)</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">
+</span></span></span></code></pre>
+</div>
+						Because of the space needed for tagging and alignment, this type is 16 bytes long.
+						</div>
+						<div class="blog-img">
+							<img alt="A visualization of an enum with variants of different sizes, and their respective memory fragmentation." src="../static/dense-enums/img1.webp" style="max-height: 240px">
+						</div>
+					</figure>
+
+					<p>
+					This presents real pain when collecting a large number of them into a 
+					<span class="ilc">Vec</span> or <span class="ilc">HashMap</span>. 
+					The padding can be dealt with using some form of 
+					<i>struct of arrays</i> (SoA)
+					transformation that stores the tag in a separate allocation. 
+					However, reducing the variant fragmentation is not so trivial. 
+					</p>
+
+					<p>
+					You could hand-roll specialized data structures for <i>a particular enum</i>
+					that reduce fragmentation to a minimum; but doing this generically 
+					for an arbitrary enum with maximum memory efficiency is close to 
+					impossible in Rust. The only options we have are proc-macros, which 
+					compose poorly (no <span class="ilc">#[derive]</span> on third-party code or type aliases) 
+					and are not type aware (unless using workarounds based on 
+					<span class="ilc">generic_const_expr</span>, which infect the call graph with verbose where-clauses
+					and don't work with generic type parameters). Zig on the 
+					other hand let's us perform the wildest data structure transformations 
+					in a generic and concise way. 
+					</p>
+
+					<p>
+					Before I go into the implementation details, I'd like to explain why 
+					reducing the aforementioned memory fragmentation is useful in practice. 
+					</p>
+
+					<div class="blog-subtitle">Background</div>
+					<p>
+					To me, one of the biggest motivators for efficient enum arrays 
+					has been compilers. One problem that keeps coming up when designing 
+					an AST is figuring out how to reduce its memory footprint. Big ASTs 
+					can incur a hefty performance penalty during compilation, because 
+					memory latency and cache evictions are frequent bottlenecks in compiler 
+					frontends. Chandler Carruth's 
+					<a href="https://www.youtube.com/watch?v=ZI198eFghJk">video on the Carbon compiler</a> has been 
+					making the rounds on language forums. In it he describes how a 
+					parsed clang AST regularly consumes 50x more memory than the 
+					original source code!
+					</p>
+
+					<p>
+					Alright, so what does this have to do with enums? Well, the 
+					most common way of representing syntax tree nodes is via some kind 
+					of recursive (or recursive-like) data structure. Let's define a node 
+					for expressions in Rust, using newtype indices for indirection:
+					</p>
+					<div class="blog-cg">
+<div class="blog-code">
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="k">enum</span> <span class="nc">Expr</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">Unit</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">Number</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">Binary</span><span class="p">(</span><span class="n">Operation</span><span class="p">,</span><span class="w"> </span><span class="n">ExprId</span><span class="p">,</span><span class="w"> </span><span class="n">ExprId</span><span class="p">)</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">Ident</span><span class="p">(</span><span class="n">Symbol</span><span class="p">)</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">Eval</span><span class="p">(</span><span class="n">ExprId</span><span class="p">,</span><span class="w"> </span><span class="n">ExprSlice</span><span class="p">)</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">BlockExpression</span><span class="p">(</span><span class="n">ExprId</span><span class="p">,</span><span class="w"> </span><span class="n">StatementSlice</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">}</span><span class="w">
+</span></span></span></code></pre></div></div>
+
+					<div class="sidenote">
+					<b>Note:</b> We can write an AST node in OCaml for comparison:
+<div class="blog-code">
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="k">type</span> <span class="n">expr</span> <span class="o">=</span> 
+</span></span><span class="line"><span class="cl">  <span class="o">|</span> <span class="nc">Unit</span>
+</span></span><span class="line"><span class="cl">  <span class="o">|</span> <span class="nc">Number</span>
+</span></span><span class="line"><span class="cl">  <span class="o">|</span> <span class="nc">Binary</span> <span class="k">of</span> <span class="n">op</span> <span class="o">*</span> <span class="n">expr</span> <span class="o">*</span> <span class="n">expr</span>
+</span></span><span class="line"><span class="cl">  <span class="o">|</span> <span class="nc">Ident</span> <span class="k">of</span> <span class="n">symbol</span>
+</span></span><span class="line"><span class="cl">  <span class="o">|</span> <span class="nc">Eval</span> <span class="k">of</span> <span class="n">expr</span> <span class="o">*</span> <span class="n">stmt</span> <span class="kt">list</span>
+</span></span><span class="line"><span class="cl">
+</span></span></code></pre>
+</div>
+					A big difference compared to Rust is that we can express truly 
+					recursive data types without any form of explicit indirection. 
+					That's because the runtime system and garbage collector take care 
+					of the memory bookkeeping for us.
+					</div>
+
+					The problem we have now is that we want to improve the <i>packing efficiency</i>
+					of those enums. A simple <span class="ilc">Vec(Expr)</span> will consume <span class="ilc">sizeof(Enum)</span> 
+					amount of memory for every element, which corresponds to the size of 
+					the largest variant + tag + padding. Luckily, there are some ways 
+					of dealing with this.
+
+					<div class="blog-subtitle">Reducing Fragmentation</div>
+					Let's take a simple example of a 3-variant enum with member sizes 
+					8, 16 and 32 bits. Storing those in a regular <span class="ilc">Vec</span> will look like this:
+
+					<figure>
+						<div class="sidenote">
+						<b>Figure 2:</b> 
+						Here every element reserves a large amount of space to accommodate the 32-bit variant and to satisfy its alignment. 
+						</div>
+						<div class="blog-img">
+							<img alt="A visualization of an array of enum values, with varying fragmentation levels per element" src="../static/dense-enums/layout1.webp" style="max-height: 300px">
+						</div>
+					</figure>
+
+					<p>
+					The most common way to improve packing efficiency is by just keeping the enum variants as small as possible using tagged indices (*). 
+					<div class="sidenote">
+					(*): For examples in Rust, take a look at the <a href="https://doc.rust-lang.org/stable/nightly-rustc/rustc_data_structures/tagged_ptr/index.html#">tagged_index crate</a> used in the compiler 
+					or check out this recent <a href="https://mcyoung.xyz/2023/08/09/yarns/">blog post on small-string optimization</a>. 
+					You'll find these optimizations all the time in high-performance code 
+					like language runtimes, garbage collectors, compilers, game engines or OS kernels.
+					</div>
+					</p>
+
+					<p>
+					Unfortunately, that doesn't completely solve the fragmentation issue. The other way is to tackle the container type directly! We could use a struct-of-arrays approach to store discriminant and value in two separate allocations. In fact, that's what the self-hosted Zig compiler actually does.
+					</p>
+
+					<figure>
+						<div class="sidenote">
+						<b>Figure 3:</b> 
+						The tags and union values are stored in two separate allocations, so we're not paying for padding anymore. However, the union collection still has variant fragmentation. 
+						</div>
+						<div class="blog-img">
+							<img alt="A struct-of-arrays transformation of an enum array" src="../static/dense-enums/layout2.webp" style="max-height: 280px">
+						</div>
+					</figure>
+
+					<p>
+					Because of Zig's staged compilation, we can have container types that 
+					perform this SoA transformation generically for any type. In Rust, 
+					we're constrained to proc-macros like <span class="ilc">soa_derive</span> 
+					which has several downsides (e.g. we can't place <span class="ilc">#[derive]</span> 
+					on third-party types without changing their source).
+					</p>
+
+					<div class="blog-subtitle">Reducing Variant Fragmentation</div>
+					This SoA transformation reduces a lot of wasted padding introduced by 
+					the enum tag, but still isn't optimal. To really get rid of fragmentation 
+					in the values, we can create one vector <i>per variant</i>. 
+
+					<figure>
+						<div class="sidenote">
+						<b>Figure 4:</b> 
+						Compared to the SoA layout from before, we have a partial order instead of a total order. So upon insertion, we get back a tagged index that holds both the enum tag and the index in the particular variant array. 
+						</div>
+						<div class="blog-img">
+							<img alt="Visualization of a simple AoVA layout" src="../static/dense-enums/layout6.webp" style="max-height: 170px">
+						</div>
+					</figure>
+
+					I don't think there's a name for this collection, so I call it <i>array of variant arrays</i> (or AoVA). This can be implemented in Rust and Zig, using proc-macros and comptime respectively.
+
+					<div class="blog-subtitle">Size Equivalence Classes</div>
+					<p>
+					We could stop here, but let's consider enums that have <i>lots</i> of variants that can be grouped into a small number of clusters with the same type size:
+					<p>
+
+					<div class="blog-cgw" style="flex-wrap: wrap-reverse;">
+<div class="blog-code" style="margin-top: 25px; height: 100%; min-width: 180px;">
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="k">enum</span> <span class="nc">Foo</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">A</span><span class="p">(</span><span class="kt">u8</span><span class="p">,</span><span class="w"> </span><span class="kt">u8</span><span class="p">)</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">B</span><span class="p">(</span><span class="kt">u16</span><span class="p">)</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">C</span><span class="p">(</span><span class="kt">u16</span><span class="p">)</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">D</span><span class="p">(</span><span class="p">[</span><span class="kt">u8</span><span class="p">;</span><span class="w"> </span><span class="mi">2</span><span class="p">]</span><span class="p">)</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">E</span><span class="p">(</span><span class="kt">u32</span><span class="p">)</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">F</span><span class="p">(</span><span class="kt">u16</span><span class="p">,</span><span class="w"> </span><span class="kt">u16</span><span class="p">)</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">G</span><span class="p">(</span><span class="kt">u32</span><span class="p">)</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">H</span><span class="p">(</span><span class="kt">u32</span><span class="p">)</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">I</span><span class="p">(</span><span class="p">[</span><span class="kt">u8</span><span class="p">;</span><span class="w"> </span><span class="mi">4</span><span class="p">]</span><span class="p">)</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">J</span><span class="p">(</span><span class="kt">u32</span><span class="p">,</span><span class="w"> </span><span class="kt">u32</span><span class="p">)</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">K</span><span class="p">(</span><span class="kt">u32</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="kt">u16</span><span class="p">,</span><span class="w"> </span><span class="kt">u16</span><span class="p">)</span><span class="p">)</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">L</span><span class="p">(</span><span class="kt">u64</span><span class="p">)</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">M</span><span class="p">(</span><span class="kt">u64</span><span class="p">)</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">N</span><span class="p">(</span><span class="kt">u32</span><span class="p">,</span><span class="w"> </span><span class="kt">u16</span><span class="p">,</span><span class="w"> </span><span class="kt">u16</span><span class="p">)</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">O</span><span class="p">(</span><span class="p">[</span><span class="kt">u8</span><span class="p">;</span><span class="w"> </span><span class="mi">8</span><span class="p">]</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">}</span><span class="w">
+</span></span></span></code></pre>
+</div>
+					<figure style="min-width: 300px; width: 0; flex-grow: 3; flex-basis: 470px;">
+						<div class="blog-img">
+							<img alt="Naive AoVA layout causes us to create 15 different vectors - one per enum variant" src="../static/dense-enums/layout15.webp" style="max-height: 300px">
+						</div>
+					</figure>
+					</div>
+
+					<p>
+					As you can see, the one-vec-per-variant approach would add 15 vectors. 
+					It's likely that the number of (re)allocations and system calls would
+					increase substantially, and require a lot of memory to amortize
+					compared to the naive <span class="ilc">Vec<Foo></span>. 
+					The vectors may also be arbitrarily spread in memory, 
+					leading to a higher chance of cache conflicts. The AoVA collection itself
+					also consumes a lot of memory, bloating any structure it's embedded in. 
+					</p>
+
+					<p>
+					Now, if we group every variant by size, we get three clusters: 2, 4, and 8 bytes. Such clusters can be allocated together into the same vector - thereby reducing the number of total vectors we have in our container by 80%. So we could realistically store variants of <span class="ilc">Foo</span> in three clusters:
+					</p>
+					<div class="blog-cg">
+<div class="blog-code" style="height: 100%; min-width: 250px;">
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="k">struct</span> <span class="nc">FooVec</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="n">c_2</span>: <span class="nb">Vec</span><span class="o">&lt;</span><span class="p">[</span><span class="kt">u8</span><span class="p">;</span><span class="w"> </span><span class="mi">2</span><span class="p">]</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="c1">// A - D
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="w">    </span><span class="n">c_4</span>: <span class="nb">Vec</span><span class="o">&lt;</span><span class="p">[</span><span class="kt">u8</span><span class="p">;</span><span class="w"> </span><span class="mi">4</span><span class="p">]</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="c1">// E - I
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="w">    </span><span class="n">c_8</span>: <span class="nb">Vec</span><span class="o">&lt;</span><span class="p">[</span><span class="kt">u8</span><span class="p">;</span><span class="w"> </span><span class="mi">8</span><span class="p">]</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="c1">// J - O
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="p">}</span><span class="w">
+</span></span></span></code></pre>
+</div>
+					<figure style="min-width: 300px; width: 0; flex-grow: 2; margin-top: 0">
+						<div class="blog-img">
+							<img alt="The dense AoVA version reduces our vector count to 3" src="../static/dense-enums/layout5.webp" style="max-height: 180px">
+						</div>
+					</figure>
+					</div>
+
+					<p>
+					You could say this is a <i>dense</i> version of our AoVA pattern. 
+					However, once we colocate different variants in the <i>same allocation</i>,
+					we lose the ability to iterate through the vector in a type-safe way. 
+					The only way to access elements in such a container is via the tagged 
+					pointer that was created upon insertion. If your access pattern does 
+					not require blind iteration (which can be the case for flattened, 
+					index-based tree structures), this might be a worthwhile trade-off.  
+					</p>
+					
+					<p>
+					I've implemented a <a href="https://github.com/dist1ll/osmium">prototype of this data structure in Zig</a>. 
+					The most important pieces are the compiler built-ins that allow reflection on
+					field types, byte and bit sizes, as well as inspecting the discriminant.
+					</p>
+
+					<figure>
+					<div class="sidenote">
+					<b>Snippet:</b> At its core, it performs straightforward compile-time 
+					reflection to compute the clusters and field-to-cluster mappings. We do
+					pseudo-dynamic allocation using a stack-allocated vector. 
+					The cluster information is used to construct the AoVA data structure.  
+					Exact <a href="https://github.com/dist1ll/osmium/blob/127145584fb22b48c05b5dbb14c670001318a81c/src/osmium.zig#L54-L71">source of the snippet is here</a>.
+					</div>
+<div class="blog-code" style="width: 100%;">
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="c1">// determine kind of type (i.e. struct, union, etc.)
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="k">switch</span><span class="w"> </span><span class="p">(</span><span class="nb">@typeInfo</span><span class="p">(</span><span class="n">inner</span><span class="p">)</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="p">.</span><span class="n">Union</span><span class="w"> </span><span class="o">=</span><span class="o">&gt;</span><span class="w"> </span><span class="o">|</span><span class="n">u</span><span class="o">|</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">        </span><span class="c1">// store mapping from union field -&gt; cluster index
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="w">        </span><span class="kr">var</span><span class="w"> </span><span class="n">field_map</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="n">_</span><span class="p">]</span><span class="kt">u8</span><span class="p">{</span><span class="mi">0</span><span class="p">}</span><span class="w"> </span><span class="o">*</span><span class="o">*</span><span class="w"> </span><span class="n">u</span><span class="p">.</span><span class="n">fields</span><span class="p">.</span><span class="n">len</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">        </span><span class="c1">// iterate over union fields
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="n">u</span><span class="p">.</span><span class="n">fields</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">.</span><span class="p">.</span><span class="p">)</span><span class="w"> </span><span class="o">|</span><span class="n">field</span><span class="p">,</span><span class="w"> </span><span class="n">idx</span><span class="o">|</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">            </span><span class="c1">// compute size
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="w">            </span><span class="kr">const</span><span class="w"> </span><span class="n">space</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">@max</span><span class="p">(</span><span class="n">field</span><span class="p">.</span><span class="n">alignment</span><span class="p">,</span><span class="w"> </span><span class="nb">@sizeOf</span><span class="p">(</span><span class="n">field</span><span class="p">.</span><span class="kt">type</span><span class="p">)</span><span class="p">)</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">            </span><span class="c1">// insert into hashtable 
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="n">svec</span><span class="p">.</span><span class="n">contains_slow</span><span class="p">(</span><span class="n">space</span><span class="p">)</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">                </span><span class="n">svec</span><span class="p">.</span><span class="n">push</span><span class="p">(</span><span class="n">space</span><span class="p">)</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="nb">@compileError</span><span class="p">(</span><span class="n">ERR_01</span><span class="p">)</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">            </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">            </span><span class="n">field_map</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">svec</span><span class="p">.</span><span class="n">len</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">        </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">        </span><span class="c1">// return clusters
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="p">.</span><span class="p">{</span><span class="w"> </span><span class="p">.</span><span class="n">field_map</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">field_map</span><span class="p">,</span><span class="w"> </span><span class="p">.</span><span class="n">sizes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">svec</span><span class="w"> </span><span class="p">}</span><span class="p">;</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="p">}</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="k">else</span><span class="w"> </span><span class="o">=</span><span class="o">&gt;</span><span class="w"> </span><span class="nb">@compileError</span><span class="p">(</span><span class="s">&#34;</span><span class="s">only unions allowed</span><span class="s">&#34;</span><span class="p">)</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">}</span><span class="w">
+</span></span></span></code></pre>
+</div>
+					</figure>
+
+					<p>
+					If you do want type-safe iteration, you could pay the cost of padding, and add the tag back in:
+					</p>
+
+					<figure>
+						<div class="sidenote">
+						<b>Figure 5:</b> 
+						We've essentially partitioned the enum on the <i>data-level</i>, 
+						leaving the interpretation at the type-level untouched
+						</div>
+						<div class="blog-img">
+							<img alt="Dense AoVA layout with additional tag and padding" src="../static/dense-enums/layout3.webp" style="max-height: 280px">
+						</div>
+					</figure>
+
+					<p>
+					If the padding is too much, you can do an SoA transformation on each of the variant arrays.
+					</p>
+
+					<figure>
+						<div class="sidenote">
+						<b>Figure 6:</b> Here we have a similar partitioning, but without
+						the padding. The downside is that we're doubling the vector count.
+						</div>
+						<div class="blog-img">
+							<img alt="Dense AoVA layout, with tag and per-cluster SoA transformation" src="../static/dense-enums/layout4.webp" style="max-height: 280px">
+						</div>
+					</figure>
+
+					<p>
+					So as you can see, there's quite a few trade-offs we can make in this space - 
+					and they all depend on the concrete memory layout of our enum. 
+					</p>
+
+					<p>
+					While creating such data structures is pretty straightforward in Zig, 
+					creating any of these examples in Rust using proc macros is basically 
+					impossible - the reason being that proc macros don't have access to 
+					type information like size or alignment. While you could have a proc 
+					macro generate a <span class="ilc">const fn</span> that computes the clusters for a particular 
+					enum, this function cannot be used to specify the length of an array 
+					for a <i>generic</i> type.
+					</p>
+
+					<p>
+					Another limit to Rust's generics is that the implementation of a 
+					generic container cannot be conditioned on whether the given type is 
+					an enum or a struct. 
+					In Zig, we can effectively do something like this:
+					</p>
+
+					<figure>
+<div class="blog-code" style="width: 100%;">
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="c1">// this is pseudocode
+</span></span></span><span class="line"><span class="cl"><span class="c1"></span><span class="k">struct</span> <span class="nc">EfficientContainer</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="k">if</span><span class="p">(</span><span class="n">T</span><span class="p">.</span><span class="n">isEnum</span><span class="p">(</span><span class="p">)</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">        </span><span class="n">x</span>: <span class="nc">EfficientEnumArray</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">        </span><span class="n">x</span>: <span class="nc">EfficientStructArray</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="p">,</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="w">    </span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w"></span><span class="p">}</span><span class="w">
+</span></span></span></code></pre>
+</div>
+					</figure>
+					<p>
+					We can also specialize the flavor of our AoVA implementation based on the enum. Maybe the benefits of colocating different variants only starts to make sense if we reduce the number of vectors by more than 90%. 
+					</p>
+					
+					<p>
+					So ultimately we gain a lot of fine-grained control over data structure selection. And if we have good heuristics, we can let the type-aware staging mechanism select the best implementation for us. To me, this represents a huge step in composability for high-performance systems software. 
+					</p>
+
+					<div class="blog-subtitle">Bonus: Determining Index Bitwidth at Compile Time</div>
+					<p>
+					While implementing my prototype, I noticed other ways of saving memory.
+					For instance, if you know the maximum capacity of your data structure 
+					at compile time, you can pass that information to the type-constructing function
+					and let it determine the bitwidth of the returned tagged index.
+					</p>
+
+					<p>
+					When this tagged index is included in a subsequent data structure, let's say another enum, this information carries over naturally, and the bits that we didn't need can be used for the discriminant!
+					</p>
+
+					<p>
+					So what Zig gives you is <i>composable</i> memory efficiency. By being 
+					specific about the number of bits you need, different parts of the code 
+					can take advantage of that. And with implicit widening integer coercion, 
+					dealing with APIs of different bitwidths stays ergonomic. In a way, 
+					this reminds me a lot of refinement typing and ranged integers, so this 
+					ties in a lot with my <a href="https://alic.dev/blog/custom-bitwidth">post on custom bitwidth integers</a>. 
+					</p>
+					
+					<div class="blog-subtitle">Conclusion</div>
+					Writing extremely efficient generic data structures in Rust is not 
+					always easy - in some cases they incur lots of accidental complexity, 
+					in some others they're essentially impossible to implement. I think 
+					one of the biggest takeaways for me with regards to staged compilation 
+					was the ability to be composable on a memory layout level. If you're 
+					developing a systems programming language that embraces efficiency and 
+					zero-cost abstractions, you should absolutely take another look at 
+					staged programming and in particular Zig's comptime.
+					<!-- +++++++++ -->
+				</div>
+			</div>
+		</div>
+	</body>
+</html>

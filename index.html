@@ -1,72 +1,117 @@
 <!DOCTYPE html>
 <html lang="en">
 	<head>
-		<title>Adrian's Website</title>
-		<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, user-scalable=no" />
+		<title>Adrian Alic - Blogging about high-performance systems</title>
+		<link rel="canonical" href="https://alic.dev/"/>
+		<link rel="alternate" type="application/rss+xml" title="Adrian Alic's Blog" href="https://alic.dev/feed.xml">
+		<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
 		<meta charset="UTF-8">
-		<meta name="description" content="Software developer with interest in distributed and decentralized systems. Here you can find a list of my background, projects, experiences and interests.">
+		<meta name="description" content="I'm an experienced software engineer contributing to the IC consensus protocol. I'm interested in distributed systems, unikernels, multithreading and low-latency networking.">
 		<meta name="theme-color" content="#000000">
 		<link rel="stylesheet" href="style.css">
-		<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-		<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+		<link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+		<link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
 		<link rel="apple-touch-icon" href="apple-touch-icon.png">
+
+		<link as="font" href="static/fonts/cmu1.woff2" rel="preload" type="font/woff2">
+		<link as="font" href="static/fonts/cmu3.woff2" rel="preload" type="font/woff2">
+
+		<style>
+		@font-face {
+			font-family: 'Computer Modern'; src: url('static/fonts/cmu1.woff2') format('woff2');
+			font-weight: 400; font-style: normal; font-display: swap;
+		}
+		@font-face {
+			font-family: 'Computer Modern'; src: url('static/fonts/cmu3.woff2') format('woff2');
+			font-weight: 700; font-style: normal; font-display: swap;
+		}
+		</style>
+	</head>
 	<body>
 		<div id="app">
-			<div id="content">
-				<div id="title">
-					<h1>Adrian Alic</h1>
-					<div id="contacts">
-						<a  href="https://www.linkedin.com/in/dist1ll/">LinkedIn</a>
-						<a  href="https://github.com/dist1ll">GitHub</a>
-						<a  href="mailto:contact@alic.dev">Email</a>
+			<div id="content" >
+				<div id="header">
+						<a class="header-sel" href="https://alic.dev" style="margin-left: 5px;">Blog</a>
+						<a class="header-def" href="repos.html">Repos</a>
+						<a class="header-def" href="https://github.com/dist1ll">Github</a>
+						<a class="header-def" href="https://www.linkedin.com/in/dist1ll/">Linkedin</a>
+				</div>
+				<div id="category" style="padding-bottom: 25px;">
+					<div id="category-content">
+						I'm <b>Adrian Alic</b>, a software engineer and hacker working on
+						operating systems, compilers, and high-performance code. My current
+						research project is a co-designed OS &amp; PL intended for
+						data center and ultra low-latency use cases.
 					</div>
-					
 				</div>
 				
-				<div id="category" style="padding-bottom: 2.5rem;">
+				<!-- CATEGORIES START-->				
+				<div class="category"> 
+					<!-- div class="category-title">Most Popular Posts</div -->
 					<div id="category-content">
-						I'm a software developer with 5+ years of experience in game development.
-						I love working on difficult problems with passionate people. 
-						Big fan of XP and Whiteboarding. C#, Rust, Java, Go, C++, Python.
+
+						<div class="blog-short">
+							<span class="blog-date">09/23</span>
+							<div class="blog-link">
+							<a href="blog/dense-enums.html">
+								When Zig outshines Rust - Memory efficient enum arrays
+							</a>
+							</div>
+						</div>
+
+						<div class="blog-short">
+							<span class="blog-date">06/23</span>
+							<div class="blog-link">
+							<a href="blog/fast-lexing.html">
+								Beating the fastest lexer generator in Rust
+							</a>
+							</div>
+						</div>
+
+						<div class="blog-short">
+							<span class="blog-date">05/23</span>
+							<div class="blog-link">
+							<a href="blog/custom-bitwidth.html">
+								On custom-width integer types
+							</a>
+							</div>
+						</div>
+
+						<div class="blog-short">
+							<span class="blog-date">01/23</span>
+							<div class="blog-link">
+							<a href="blog/false-sharing.html">
+								Measuring the impact of false sharing
+							</a>
+							</div>
+						</div>
+
+						<div class="blog-short">
+							<span class="blog-date">11/22</span>
+							<div class="blog-link">
+							<a href="blog/blackbox.html">
+								Avoiding benchmarking pitfalls with std::hint::black_box
+							</a>
+							</div>
+						</div>
+						
+
+						<div class="blog-short">
+							<div class="blog-date">07/22</div>
+							<div class="blog-link">
+							<a href="blog/comparisons.html">Comparing yourself to others is fine</a>
+							</div>
+						</div>
+
 					</div>
+				</div> 	<!-- CATEGORIES END -->
+
+				<!-- RSS feed icon -->
+				<div class="blog-date" style="justify-self: end; height: 100%;">
+					RSS<a href="feed.xml"><img class="blog-rss"></a>
 				</div>
-
-				<div id="category">
-					<div id="category-title">Projects</div>
-					<div id="category-divider"></div>
-					<div id="project-container">
-						
-						<a class="paragraph-project" style="cursor: default;">
-							<span class="paragraph-title">Coming Soon!</span><br>
-							Smart-contract based esports prediction platform. 
-							A proof-of-concept towards decentralized betting on Algorand.
-						</a>
-
-						<a class="paragraph-project" href="https://github.com/dist1ll/algo-siam">
-							<span class="paragraph-title">Siam</span><br>
-							Storage interface to on-chain global state on Algorand blockchain. Currently
-							used to publish match data 
-							for the zkBET Oracle.
-						</a>
-
-						<a class="paragraph-project" style="cursor: default;">
-							<span class="paragraph-title">N/A</span><br>
-							Proprietary collateral-backed escrow service for virtual goods powered 
-							by decentralized smart contracts. Built with Go and Vue.js.
-						</a>
-						
-						<a class="paragraph-project" href="https://github.com/dist1ll/pomcpp">
-							<span class="paragraph-title">pomcpp</span><br>
-							Open-source C++ simulation platform for researching decision making problems in multi-agent domains.
-						</a>
-						
-						<a class="paragraph-project" href="https://github.com/dist1ll/hltv-rust">
-							<span class="paragraph-title">hltv.rs</span><br>
-							An async Rust library for fetching and parsing data from HLTV.org. Published on crates.io.
-						</a>
-					</div>
-				</div>
-			</div>
-		</div>
+												
+			</div> <!-- CONTENT END -->
+		</div> <!-- APP END -->
 	</body>
 </html>

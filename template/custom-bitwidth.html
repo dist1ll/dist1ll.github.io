@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>On custom-width integer types</title>
+		<link rel="canonical" href="https://alic.dev/blog/custom-bitwidth" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
+		<meta charset="UTF-8">
+		<meta name="description" content="Custom-width integers are an interesting language feature. They open the door to several efficiency optimizations - both in hardware and software. In this post I'll be making an argument in favor of custom-width integers, and why modern systems programming languages should absolutely have them.">
+		<meta name="theme-color" content="#000000">
+		<link rel="icon" type="image/png" sizes="32x32" href="../favicon-32x32.png">
+		<link rel="icon" type="image/png" sizes="16x16" href="../favicon-16x16.png">
+		<link rel="stylesheet" href="../style.css">
+		<link rel="stylesheet" href="../blogstyle.css">
+		
+		<link as="font" href="../static/fonts/cmu1.woff2" rel="preload" type="font/woff2">
+		<link as="font" href="../static/fonts/cmu2.woff2" rel="preload" type="font/woff2">
+		<link as="font" href="../static/fonts/cmu3.woff2" rel="preload" type="font/woff2">
+
+		<style>
+		@font-face {
+			font-family: 'Computer Modern'; src: url('../static/fonts/cmu1.woff2') format('woff2');
+			font-weight: 400; font-style: normal; font-display: swap;
+		}
+		@font-face {
+			font-family: 'Computer Modern'; src: url('../static/fonts/cmu2.woff2') format('woff2');
+			font-weight: 400; font-style: italic; font-display: swap;
+		}
+		@font-face {
+			font-family: 'Computer Modern'; src: url('../static/fonts/cmu3.woff2') format('woff2');
+			font-weight: 700; font-style: normal; font-display: swap;
+		}
+		</style>
+	</head>
+	<body>
+		<div id="app">
+			<div id="content">
+				<div id="header">
+						<a class="header-sel" href="https://alic.dev" style="margin-left: 5px;">Blog</a>
+						<a class="header-def" href="https://alic.dev/repos.html">Repos</a>
+						<a class="header-def" href="https://github.com/dist1ll">Github</a>
+						<a class="header-def" href="https://www.linkedin.com/in/dist1ll/">Linkedin</a>
+				</div>
+				<div id="blog-title">On custom-width integer types</div>
+				<div class="blog-date">May 2023 - RSS<a href="../feed.xml"><img class="blog-rss"></a></div>
+				
+				<div id="blog-content">
+					<p>
+					Before we start: by "custom-width integer types" I'm referring to a 
+					language feature that lets users specify integer types with <i>any</i> 
+					fixed number of bits (e.g. <span class="ilc">u7</span>, 
+					<span class="ilc">u12</span>) - instead of being provided a 
+					handful of integers that correspond to common xword sizes 
+					(e.g. <span class="ilc">u8</span>,<span class="ilc">u16</span>,
+					<span class="ilc">u32</span>,<span class="ilc">u64</span>). 
+					The first time I've encountered this idea was in the Zig language, 
+					although it also exists in Clang & LLVM IR. 
+					</p>
+					<p>
+					Now, Zig is an odd one. The language was founded on pure systems 
+					programming pragmatism - an antithesis of ivory-tower category theory 
+					shenanigans, and a place where Curry is just an earthy Indian spice. 
+					But time and time again, through pragmatic, real-world justifications, 
+					we witness a collision of these two worlds.  
+					</p>
+
+					<p>
+					How come? <i>It turns out that accurately modeling your program's intended 
+					behavior is in everyone's best interest.</i> As long as this model is 
+					programatically enforced (e.g. by language semantics), we can get 
+					two big benefits: (1) we improve correctness and safety of our 
+					programs and (2) we open the door for aggressive compiler optimizations. 
+					And custom-width integer types are a perfect example of this. 
+					</p>
+
+					<div class="blog-subtitle">A First Perspective</div>
+					We can look at these integers as a limited form of integer ranges, 
+					where the range for <span class="ilc">uX ∈ [0, 2^X)</span>.  Some languages like Ada have 
+					native support for arbitrary ranges: 
+
+					<div class="blog-cg">
+<div class="blog-code">
+```ada
+type u7 is range 0..127;
+```
+</div></div>
+
+					Ada goes even further; you can also declare a subtyping 
+					relationship between <span class="ilc">u7</span> and 
+					<span class="ilc">Integer</span>:
+
+					<div class="blog-cg">
+<div class="blog-code">
+```ada
+subtype u7 is Integer is range 0..127;
+```
+</div></div>
+
+					Creating subtypes that represent subsets of a supertype's possible 
+					values is called <i>refinement</i>. If we take a look at Zig, we can 
+					see that all custom integer sizes have a strict subtyping hierarchy, 
+					so they qualify as <i>refinement types</i>. To illustrate, take a 
+					look at this snippet. 
+
+					<div class="blog-cg">
+<div class="blog-code">
+```zig
+pub fn foo(x: u10) u10 { return x; }
+pub fn main() !void {
+	var y: u9 = 0;
+	_ = square(y);
+}
+```
+</div></div>
+
+					The 9-bit integer gets implicitly promoted here and the code compiles 
+					without issues, which is exactly the kind of ergonomics you'd expect 
+					from refined types. Now, if we change <span class="ilc">foo</span> to 
+					accept a <span class="ilc">u8</span>, the compiler emits the following 
+					error:
+
+					<div class="blog-cg">
+<div class="blog-code">
+```text
+note: unsigned 8-bit int cannot represent all possible unsigned 9-bit values
+```
+</div></div>
+
+					Great! Now, before we make use of this feature, let's take a look at 
+					how refinement can be achieved in other languages.
+
+					<div class="blog-subtitle">Emulating Refinement through Restricted Construction</div>
+
+					To emulate refinement, most statically typed languages use the type 
+					system to restrict the construction and modification of objects - 
+					thereby <i>encapsulating</i> the refinement invariant in the object. 
+					Here's an example for even 64-bit integers:
+
+					<div class="blog-cg">
+<div class="blog-code">
+```rust
+pub struct EvenU64(u64);
+impl EvenU64 {
+    pub fn new(i: u64) -> Result<Self, Error> {
+        match i % 2 == 0 {
+            true => Ok(Self(i)),
+            _ => Err(Error::InvalidArgument), 
+        }
+    }
+}
+```
+</div></div>
+
+					<p>
+					You can find 
+					<a href="https://doc.rust-lang.org/stable/std/num/struct.NonZeroU32.html">
+					other useful examples</a> in Rust's standard library. For this to work, 
+					your language of choice needs something akin to access modifiers 
+					(Java, C#, C++, Rust) or modules (ML-family), that allow you to restrict 
+					construction and modification of objects. Ironically this is not 
+					possible in Zig, because the language does not have a notion of private 
+					or immutable fields.
+					</p>
+
+					<p>
+					However, the encapsulation approach is still only an emulation of 
+					refinement, due to the lack of automatic subtyping. Let's instead take 
+					a look at languages that have first-class support for refinement types.
+					</p>
+
+					<div class="blog-subtitle">Refinement Through Predicates</div>
+					The most common form of refinement typing comes in the form of logical 
+					predicates attached to types which are evaluated by an SMT solver. 
+					 
+					These are examples of boolean refinement types, written in 
+					<a href="https://www.fstar-lang.org/">F*</a>:
+
+					<div class="blog-cg">
+<div class="blog-code">
+```ocaml
+let pos  = x:int { x > 0 }      //the positive numbers
+let neg  = x:int { x < 0 }      //the negative numbers
+let even = x:int { x % 2 = 0 }  //the even numbers
+let odd  = x:int { x % 2 = 1 }  //the odd numbers
+```
+</div></div>
+
+					<span class="sidenote">
+						<b>Note</b>: Refinement types based on predicates come at a cost,
+						and are restricted to formulas without quantifiers like 
+						<code>forall</code> and <code>exists</code>; once you allow 
+						existential or universal quantification, you're in the world
+						of dependent types, which require formal proof terms.
+					</span>
+					The idea is that we constrain the type to values for which the 
+					predicate on the right evaluates to true. Another great example
+					of a language with first-class refinement types is
+					<a href="https://ucsd-progsys.github.io/liquidhaskell/">
+					LiquidHaskell</a>:
+
+					<div class="blog-cg">
+<div class="blog-code">
+```haskell
+{-@ type Nat   = {v:Int | 0 <= v}        @-}
+{-@ type Even  = {v:Int | v mod 2 == 0 } @-}
+{-@ type Lt100 = {v:Int | v < 100}       @-}
+```
+</div></div>
+
+					<span class="sidenote">
+						<b>Note</b>: Languages like LiquidHaskell <i>"use linear arithmetic
+						and real numbers to reason about numeric operations"</i>
+						<a href="https://goto.ucsd.edu/~nvazou/real_world_liquid.pdf">[Vazou, 2014]</a>. 
+					</span>
+
+					After declaring these refined types, you can apply them to types, 
+					variables or functions. You can even use them to specify preconditions 
+					and postconditions for your function arguments and return values, 
+					which are checked at compile time:
+
+					<div class="blog-cg">
+<div class="blog-code">
+```haskell
+{-@ abs :: Int -> Nat @-}
+abs           :: Int -> Int
+abs n
+  | 0 < n     = n
+  | otherwise = 0 - n
+```
+</div></div>
+
+					It's easy to see that refinement types are a significant step up in 
+					terms of compile-time safety and enforcement of invariants. Now let's 
+					move on to some of the performance opportunities these ideas bring.
+
+					<div class="blog-subtitle">Memory Layout Optimizations</div>
+					<p>
+					When writing performance-critical data structures, every bit of memory 
+					footprint counts. Especially for concurrent data structures, our critical 
+					bottlenecks often happen to be concentrated on a small number of integers
+					(e.g. indices, RCU pointers, DCAS timestamps, hash keys, bitmaps,
+					tails & heads, metadata, semaphores, etc...). 
+
+					</p>
+
+					Let's take pointer compression for example. It's an optimization most 
+					often used for making buffer indices so small that they can (1) fit 
+					into fewer cache lines to improve locality and read latency or (2) 
+					can be read, modified and updated in large batches, especially for 
+					SIMD or atomic stores. 
+					
+					<figure>
+						<div class="sidenote">
+						<b>Figure 1:</b> By choosing an inappropriate integer size, we introduce 
+						lots of dead space between fields. In cases where memory footprint 
+						needs to be kept minimal, this is a big problem.
+						</div>
+						<div class="blog-img">
+							<img alt="Packed 12-bit integers" src="../static/custom-bitwidth/space-saving.webp" style="max-height: 200px">
+						</div>
+					</figure>
+					
+					The downside of shift + mask to get your oddly sized unaligned 
+					integer out of a dense array is likely minimal.  
+					The figure below shows a comparison of execution traces on Intel Skylake, 
+					with a latency penalty of ~2.5 cycles due to the data dependency.
+
+					<figure>
+						<span class="sidenote">
+							<b>Figure 2:</b> These execution traces were generated with
+							<a href="https://uica.uops.info">uica.uops.info</a>. The pipeline
+							is filled with a bunch of nops, so the dispatch queue is pretty tight.
+							Unless you're doing nothing but compute indices and fetch
+							memory, the latency penalty is likely neglible.<br><br>
+							
+							<b>Note:</b> Instead of shift + mask, you can use <span class="ilc">
+							BEXTR</span> on x86, which is part of the BMI1 extension (post-Haswell). 
+							The equivalent on ARMv6+ is <span class="ilc">UBFX</span> and on 
+							PowerPC you have <span class="ilc">rlwinm</span>.
+						</span>
+						<div class="blog-img">
+							<img alt="Execution trace for a normal load instruction" src="../static/custom-bitwidth/without.webp" style="max-height: 200px">
+						</div>
+						<div class="blog-img">
+							<img alt="Execution trace for load + shift + mask combination" src="../static/custom-bitwidth/with.webp" style="max-height: 200px">
+						</div>
+					</figure>
+
+					<p>
+					</p>
+
+					<p>
+					Another example that often comes up in this context is union types 
+					(especially tagged unions). 
+					Even small size discrepancy between union 
+					variants can drastically increase our memory consumption. This is 
+					often an issue when dealing with recursive data structures like ASTs.
+					</p>
+
+					<b>Example:</b> I'm parsing a flattened AST and want to add a new node type 
+					for block expressions. A block always ends with another expression, 
+					but may optionally have a certain number of statements preceding it. 
+					Let's take a shot at it with some pseudocode:
+
+					<div class="blog-cg">
+<div class="blog-code">
+```rust
+pub enum Expr {
+    BlockExpr(u32, Option<u32>, u8)
+    //        ^^^         ^^^   ^^
+    // expr pointer        |     |
+    //        statement pointer  |
+    //                  statement count
+}
+```
+</div></div>
+
+					<p>
+					The first field is an index into our array of expressions, and the
+					two remaining fields are essentially a fat pointer.
+					That's 10 bytes for unaligned enum values and 16 with padding! The statement 
+					pointer seems wastefully large, but 16-bits (~65k statements) is 
+					definitely too low. How about <span class="ilc">u21</span>? That will 
+					give us a budget of 2 million total addressable statements, which seems 
+					good. Now we have a budget of <span class="ilc">u10</span> for the 
+					statement count (max of 1024 statements per block seems reasonable) 
+					and can use the most-significant bit for the <span class="ilc">Option</span> 
+					discriminant. 
+					</p>
+
+					We can also think about the number of variants in the <span class="ilc">
+					Expr</span> enum. It's common to have a few dozen different expression 
+					types, so we need some bits for the enum tag. We can take them from 
+					the expression pointer*. 
+
+					
+					<div class="blog-cg">
+<div class="blog-code">
+```rust
+pub enum Expr {
+    BlockExpr(u24, Option<u21>, u10)
+}
+```
+</div></div>
+
+					<p>
+					This idea only works if our compiler understands that the MSBs
+					can be safely used for the discriminant. In languages like Rust, you can add
+					custom-width integers <i>inside of enums</i>
+					with heavy use of proc macros and unsafe transmutes. But once 
+					your variant tuples contain newtypes, the size information is lifted to 
+					the semantic level, at which point this hack becomes impossible(*). 
+
+					<span class="sidenote">
+					(*): An exception to this is the Rust compiler. If you take a look at
+					its source code, you'll quickly find many instances of special 
+					<a href="https://doc.rust-lang.org/beta/nightly-rustc/rustc_span/symbol/struct.Symbol.html">unstable compiler hacks</a> that are used
+					to squeeze out performance or memory-efficiency.
+					</span>
+
+					</p>
+
+					</p>
+					With these few changes we've just shaved off two bytes, while still 
+					having 2-4 bits to spare for metadata, depending on the number of 
+					variants. And since the whole thing fits into 8 bytes, we basically
+					get alignment for free. Without native support for custom-width 
+					integers, creating these oddly sized nested enums would become a real chore.
+					</p>
+					<div class="blog-subtitle">The LLVM Perspective</div>
+					<p>
+					Shaving off unneeded bits isn't only relevant for 
+					software. Most x86_64 machines today can only use the lower 48-52 bits 
+					for physical addressing, which I believe is done for space and 
+					efficiency reasons. This leads us directly to the other end of the 
+					spectrum, namely hardware design. 
+					</p>
+					In 2020, Erich Keane submitted a patch to LLVM implementing custom-width 
+					integers and wrote a great 
+					<a href="http://blog.llvm.org/2020/04/the-new-clang-extint-feature-provides.html">
+					follow-up post</a> about it. The main motivation was to enable more 
+					efficient high-level synthesis (HLS) of C and C++ programs. The post 
+					is absolutely worth a read, and also mentions some of the intricacies 
+					around integer promotion. 
+
+					<div class="blog-subtitle">Conclusion</div>
+					In my opinion, most modern systems programming languages would greatly
+					benefit from custom-width integers. I'd like to highlight a 
+					very relevant sentence from Erich's LLVM post: 
+
+					<div class="blog-quote">
+					Worse, there was no way for the programmer express their intent in the 
+					cases where they do not need the full width of a standard integer type.
+					</div>
+
+					<p>
+					It's my belief that exactly this shared experience made people 
+					from different backgrounds come to the same realization. It's no 
+					surprise that whenever we are given the ability to convey more 
+					information about our problem, we're often rewarded by the compiler 
+					with correctness, consistency and performance. I'm looking forward to 
+					more languages beyond Zig adopting this feature in the future.
+					</p>
+
+					<div class="blog-subtitle">Further Reading</div>
+					<!-- References -->
+					<ul>
+						<li>Oli Scherer. "Ranged Integers" (a series of posts on ranges in Rust)
+						<i>cohost.org</i> 2022
+						<a href="https://www.morganclaypool.com/doi/pdf/10.2200/S00346ED1V01Y201104CAC016">[link]</a>
+						</li>
+
+						<li>Laurence Tratt. "Static Integer Types" 
+						<i>tratt.net</i> 2021
+						<a href="https://tratt.net/laurie/blog/2021/static_integer_types.html">[link]</a>
+						</li>
+					</ul>
+					<!-- +++++++++ -->
+				</div>
+			</div>
+		</div>
+	</body>
+</html>
