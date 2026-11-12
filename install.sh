@@ -68,6 +68,9 @@ install_fedora() {
     	alacritty \
     	helix
 
+    # Lore VCS
+    curl -fsSL https://raw.githubusercontent.com/EpicGames/lore/main/scripts/install.sh | bash
+
     # Zed IDE
     if ! command -v zed >/dev/null 2>&1 && [ ! -x "$HOME/.local/bin/zed" ]; then
         (
