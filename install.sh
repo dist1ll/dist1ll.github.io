@@ -9,6 +9,11 @@ if (( $# )); then
     exit 2
 fi
 
+if [[ "$(uname -s)" != Linux || "$(uname -m)" != x86_64 ]]; then
+    printf '%s\n' 'This installer requires x86_64 Linux.' >&2
+    exit 1
+fi
+
 if [[ -z "${HOME:-}" || "$HOME" != /* || ! -d "$HOME" ]]; then
     printf '%s\n' 'HOME must point to an existing absolute directory.' >&2
     exit 1
@@ -18,8 +23,8 @@ fi
 merge_dotfiles() (
     printf '%s\n' 'Step 1/2: merge dotfiles.'
     # Bootstrap the tools needed for the merge on a fresh Fedora install.
-    if ! command -v git >/dev/null 2>&1 || ! command -v rsync >/dev/null 2>&1; then
-        sudo dnf -y install git rsync
+    if ! command -v git >/dev/null 2>&1; then
+        sudo dnf -y install git
     fi
 
     install_tmp=$(mktemp -d)
@@ -30,7 +35,12 @@ merge_dotfiles() (
     # Git's file list includes dotfiles and excludes the clone's Git metadata.
     git -C "$install_tmp/repo" ls-files -z |
     while IFS= read -r -d '' relative_path; do
-        if [[ -e "$HOME/$relative_path" || -L "$HOME/$relative_path" ]]; then
+        destination="$HOME/$relative_path"
+        if [[ "$relative_path" != .bashrc.d/10-managed.sh &&
+              ( -e "$destination" || -L "$destination" ) ]]; then
+            continue
+        fi
+        if [[ -d "$destination" && ! -L "$destination" ]]; then
             continue
         fi
 
@@ -43,13 +53,14 @@ merge_dotfiles() (
                 continue 2
             fi
         done
-        printf '%s\0' "$relative_path"
-    done > "$install_tmp/missing-files"
-
-    # NUL-separated literal paths also handle spaces and newlines in filenames.
-    # New files retain executable bits; existing directory modes stay intact.
-    rsync --links --ignore-existing --itemize-changes --from0 \
-        --files-from="$install_tmp/missing-files" -- "$install_tmp/repo/" "$HOME/"
+        mkdir -p -- "${destination%/*}"
+        # Only the managed Bash fragment may replace an existing file.
+        if [[ "$relative_path" == .bashrc.d/10-managed.sh ]]; then
+            cp --remove-destination -PT -- "$install_tmp/repo/$relative_path" "$destination"
+        else
+            cp --update=none -PT -- "$install_tmp/repo/$relative_path" "$destination"
+        fi
+    done
 )
 
 # Step 2: Install Fedora packages and user tools.
@@ -64,12 +75,14 @@ install_fedora() {
     sudo dnf -y install \
     	curl \
     	ca-certificates \
+    	libsecret \
     	intel-one-mono-fonts \
     	alacritty \
     	helix
 
     # Lore VCS
-    curl -fsSL https://raw.githubusercontent.com/EpicGames/lore/main/scripts/install.sh | bash
+    curl -fsSL https://raw.githubusercontent.com/EpicGames/lore/main/scripts/install.sh \
+        | PATH="${LORE_INSTALL_DIR:-$HOME/.local/bin}:$PATH" bash
 
     # Zed IDE
     if ! command -v zed >/dev/null 2>&1 && [ ! -x "$HOME/.local/bin/zed" ]; then
@@ -82,6 +95,30 @@ install_fedora() {
     else
         printf '%s\n' 'Zed is already installed; skipping.'
     fi
+
+    # Proton Drive CLI: Linux x86_64, installed for the current user.
+    # https://proton.me/download/drive/cli/index.html
+    (
+        proton_drive_version=0.9.0
+        proton_drive_sha512=3533025ba69ae112b64e3e01fbcc1ad0688136a4043f6cf6a72886967d85fdcd9ec235479c2e113171614be5225bfba93427509a05ca5aa6071d924fa7e91ca8
+        proton_drive_bin="$HOME/.local/bin/proton-drive"
+        if [ -x "$proton_drive_bin" ] && \
+            printf '%s  %s\n' "$proton_drive_sha512" "$proton_drive_bin" \
+                | sha512sum --check --status; then
+            printf 'Proton Drive CLI %s is already installed; skipping.\n' "$proton_drive_version"
+            exit 0
+        fi
+        proton_drive_tmp=$(mktemp -d)
+        trap 'rm -rf -- "$proton_drive_tmp"' EXIT
+        curl -fL --retry 3 \
+            "https://proton.me/download/drive/cli/${proton_drive_version}/linux-x64/proton-drive" \
+            -o "$proton_drive_tmp/proton-drive"
+        printf '%s  %s\n' "$proton_drive_sha512" "$proton_drive_tmp/proton-drive" \
+            | sha512sum --check
+        chmod 0755 "$proton_drive_tmp/proton-drive"
+        "$proton_drive_tmp/proton-drive" version
+        install -D -m 0755 "$proton_drive_tmp/proton-drive" "$proton_drive_bin"
+    )
 
     # System packages, kernel dev, hardware, virtualization
     sudo dnf -y install \
@@ -167,7 +204,7 @@ install_fedora() {
     	python3-pyserial \
     	picocom \
     	zlib-ng-compat-static \
-    	usbutils || exit 1
+    	usbutils
 
     # slang-server: SystemVerilog language server, installed for the current user.
     # https://github.com/hudson-trading/slang-server/releases
@@ -183,30 +220,21 @@ install_fedora() {
                     ;;
             esac
         fi
-        case "$(uname -m)" in
-            x86_64)
-                slang_server_arch=x64
-                slang_server_sha256=29ad91f245f100337c35ce27dba711d5f0ea50ebc70e73c78e2b27400a87ae62
-                ;;
-            *)
-                printf 'No slang-server release configured for architecture: %s\n' "$(uname -m)" >&2
-                exit 1
-                ;;
-        esac
-        slang_server_tmp=$(mktemp -d) || exit 1
+        slang_server_sha256=29ad91f245f100337c35ce27dba711d5f0ea50ebc70e73c78e2b27400a87ae62
+        slang_server_tmp=$(mktemp -d)
         trap 'rm -rf -- "$slang_server_tmp"' EXIT
-        slang_server_archive="slang-server-linux-${slang_server_arch}.tar.gz"
+        slang_server_archive=slang-server-linux-x64.tar.gz
         curl -fL --retry 3 \
             "https://github.com/hudson-trading/slang-server/releases/download/${slang_server_version}/${slang_server_archive}" \
-            -o "$slang_server_tmp/$slang_server_archive" || exit 1
+            -o "$slang_server_tmp/$slang_server_archive"
         printf '%s  %s\n' "$slang_server_sha256" "$slang_server_tmp/$slang_server_archive" \
-            | sha256sum --check --status || exit 1
-        tar -xzf "$slang_server_tmp/$slang_server_archive" -C "$slang_server_tmp" || exit 1
-        "$slang_server_tmp/slang-server" --version || exit 1
-        install -d "$slang_server_install_dir" || exit 1
-        install -m 0755 "$slang_server_tmp/slang-server" "$slang_server_install_dir/slang-server" || exit 1
+            | sha256sum --check --status
+        tar -xzf "$slang_server_tmp/$slang_server_archive" -C "$slang_server_tmp"
+        "$slang_server_tmp/slang-server" --version
+        install -d "$slang_server_install_dir"
+        install -m 0755 "$slang_server_tmp/slang-server" "$slang_server_install_dir/slang-server"
         "$slang_server_install_dir/slang-server" --version
-    ) || exit 1
+    )
 
     # Get rid of things we don't need
     sudo dnf -y remove 'libreoffice*'
