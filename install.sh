@@ -63,22 +63,58 @@ merge_dotfiles() (
     done
 )
 
+download_verified() {
+    local url=$1 output=$2 checksum=$3 checksum_command=$4
+    curl -fL --retry 3 "$url" -o "$output"
+    printf '%s  %s\n' "$checksum" "$output" | "$checksum_command" --check
+}
+
+# With an archive directory, keep the whole release and link its executable.
+# A standalone executable is checked with --version and copied into bin.
+install_tar_release() (
+    local url=$1 checksum=$2 executable=$3 archive_dir=${4:-}
+    local bin_dir="$HOME/.local/bin" opt_dir="$HOME/.local/opt"
+    local staging archive
+
+    install -d "$bin_dir" "$opt_dir"
+    if [[ -z "$archive_dir" || ! -x "$opt_dir/$archive_dir/$executable" ]]; then
+        staging=$(mktemp -d "$opt_dir/.release.XXXXXX")
+        trap 'rm -rf -- "$staging"' EXIT
+        archive="$staging/${url##*/}"
+        download_verified "$url" "$archive" "$checksum" sha256sum
+        tar -xf "$archive" -C "$staging"
+
+        if [[ -z "$archive_dir" ]]; then
+            "$staging/$executable" --version
+            install -m 0755 "$staging/$executable" "$bin_dir/$executable"
+            "$bin_dir/$executable" --version
+            return
+        fi
+
+        test -x "$staging/$archive_dir/$executable"
+        mv -Tn -- "$staging/$archive_dir" "$opt_dir/$archive_dir"
+    fi
+
+    test -x "$opt_dir/$archive_dir/$executable"
+    ln -sfnT -- "$opt_dir/$archive_dir/$executable" "$bin_dir/$executable"
+)
+
 # Step 2: Install Fedora packages and user tools.
 install_fedora() {
     printf '%s\n' 'Step 2/2: set up Fedora.'
 
     # Avoid slowing down boot if we have NICs in a direct-attach loop.
     # Might require disabling systemd equivalent on server version.
-    # sudo systemctl disable NetworkManager-wait-online.service 
+    # sudo systemctl disable NetworkManager-wait-online.service
 
     # Dev environment
     sudo dnf -y install \
-    	curl \
-    	ca-certificates \
-    	libsecret \
-    	intel-one-mono-fonts \
-    	alacritty \
-    	helix
+        curl \
+        ca-certificates \
+        libsecret \
+        intel-one-mono-fonts \
+        alacritty \
+        helix
 
     # Lore VCS
     curl -fsSL https://raw.githubusercontent.com/EpicGames/lore/main/scripts/install.sh \
@@ -110,11 +146,9 @@ install_fedora() {
         fi
         proton_drive_tmp=$(mktemp -d)
         trap 'rm -rf -- "$proton_drive_tmp"' EXIT
-        curl -fL --retry 3 \
+        download_verified \
             "https://proton.me/download/drive/cli/${proton_drive_version}/linux-x64/proton-drive" \
-            -o "$proton_drive_tmp/proton-drive"
-        printf '%s  %s\n' "$proton_drive_sha512" "$proton_drive_tmp/proton-drive" \
-            | sha512sum --check
+            "$proton_drive_tmp/proton-drive" "$proton_drive_sha512" sha512sum
         chmod 0755 "$proton_drive_tmp/proton-drive"
         "$proton_drive_tmp/proton-drive" version
         install -D -m 0755 "$proton_drive_tmp/proton-drive" "$proton_drive_bin"
@@ -122,36 +156,35 @@ install_fedora() {
 
     # System packages, kernel dev, hardware, virtualization
     sudo dnf -y install \
-    	git-lfs \
-    	kernel-devel \
-    	perf \
-    	cmake \
-    	lshw \
-    	htop \
-    	qemu-system-riscv \
-    	qemu-system-aarch64 \
-    	gcc-riscv64-linux-gnu \
-    	gcc-riscv32-linux-gnu \
-    	numactl \
-    	numactl-devel \
-    	dtc \
-    	@virtualization
+        git-lfs \
+        kernel-devel \
+        perf \
+        cmake \
+        lshw \
+        htop \
+        qemu-system-riscv \
+        qemu-system-aarch64 \
+        gcc-riscv64-linux-gnu \
+        gcc-riscv32-linux-gnu \
+        numactl \
+        numactl-devel \
+        dtc \
+        @virtualization
 
     # PCB
     sudo dnf -y install \
-    	kicad
+        kicad
 
     # Unity dev
     sudo dnf -y install \
-    	openssl \
-    	openssl-libs \
-    	GConf2
+        openssl \
+        GConf2
 
     # Languages, compilers, linkers, LSPs
     sudo dnf -y install \
-    	clang \
-    	clang-tools-extra \
-    	rustup
+        clang \
+        clang-tools-extra \
+        rustup
 
     # Ensure Rust nightly is installed, preserving an existing default toolchain.
     setup_cargo_home="${CARGO_HOME:-$HOME/.cargo}"
@@ -177,42 +210,50 @@ install_fedora() {
 
     # FPGA dev, SystemVerilog simulation, waveform viewers, serial tests
     sudo dnf -y install \
-    	git \
-    	curl \
-    	wget \
-    	tar \
-    	gzip \
-    	unzip \
-    	patch \
-    	diffutils \
-    	gcc \
-    	gcc-c++ \
-    	make \
-    	autoconf \
-    	automake \
-    	libtool \
-    	m4 \
-    	pkgconf-pkg-config \
-    	gmp-devel \
-    	zlib-devel \
-    	libffi-devel \
-    	readline-devel \
-    	ncurses-devel \
-    	verilator \
-    	gtkwave \
-    	python3 \
-    	python3-pyserial \
-    	picocom \
-    	zlib-ng-compat-static \
-    	usbutils
+        git \
+        wget \
+        tar \
+        xz \
+        gzip \
+        unzip \
+        patch \
+        diffutils \
+        gcc \
+        gcc-c++ \
+        make \
+        autoconf \
+        automake \
+        libtool \
+        m4 \
+        pkgconf-pkg-config \
+        gmp-devel \
+        zlib-devel \
+        libffi-devel \
+        readline-devel \
+        ncurses-devel \
+        verilator \
+        gtkwave \
+        python3 \
+        python3-pyserial \
+        picocom \
+        zlib-ng-compat-static \
+        usbutils
+
+    # Blender: official Linux x64 release, installed for the current user.
+    local blender_version=5.3.0
+    local blender_release="blender-$blender_version-linux-x64"
+    install_tar_release \
+        "https://mirror.blender.org/release/Blender${blender_version%.*}/$blender_release.tar.xz" \
+        dacb8264197a3f7fda6001285a5a506fc97ee943881261c2c3bd63c882f22e05 \
+        blender "$blender_release"
 
     # slang-server: SystemVerilog language server, installed for the current user.
     # https://github.com/hudson-trading/slang-server/releases
     (
         slang_server_version=v0.3.0
-        slang_server_install_dir="$HOME/.local/bin"
-        if [ -x "$slang_server_install_dir/slang-server" ] && \
-            slang_server_installed_version=$("$slang_server_install_dir/slang-server" --version 2>&1); then
+        slang_server_bin="$HOME/.local/bin/slang-server"
+        if [ -x "$slang_server_bin" ] && \
+            slang_server_installed_version=$("$slang_server_bin" --version 2>&1); then
             case "$slang_server_installed_version" in
                 "slang-server version ${slang_server_version#v}"|"slang-server version ${slang_server_version#v}+")
                     printf 'slang-server %s is already installed; skipping.\n' "$slang_server_version"
@@ -220,32 +261,22 @@ install_fedora() {
                     ;;
             esac
         fi
-        slang_server_sha256=29ad91f245f100337c35ce27dba711d5f0ea50ebc70e73c78e2b27400a87ae62
-        slang_server_tmp=$(mktemp -d)
-        trap 'rm -rf -- "$slang_server_tmp"' EXIT
-        slang_server_archive=slang-server-linux-x64.tar.gz
-        curl -fL --retry 3 \
-            "https://github.com/hudson-trading/slang-server/releases/download/${slang_server_version}/${slang_server_archive}" \
-            -o "$slang_server_tmp/$slang_server_archive"
-        printf '%s  %s\n' "$slang_server_sha256" "$slang_server_tmp/$slang_server_archive" \
-            | sha256sum --check --status
-        tar -xzf "$slang_server_tmp/$slang_server_archive" -C "$slang_server_tmp"
-        "$slang_server_tmp/slang-server" --version
-        install -d "$slang_server_install_dir"
-        install -m 0755 "$slang_server_tmp/slang-server" "$slang_server_install_dir/slang-server"
-        "$slang_server_install_dir/slang-server" --version
+        install_tar_release \
+            "https://github.com/hudson-trading/slang-server/releases/download/${slang_server_version}/slang-server-linux-x64.tar.gz" \
+            29ad91f245f100337c35ce27dba711d5f0ea50ebc70e73c78e2b27400a87ae62 \
+            slang-server
     )
 
     # Get rid of things we don't need
     sudo dnf -y remove 'libreoffice*'
 
-    # Admin, util, miscallaneous 
+    # Admin, util, miscallaneous
     sudo dnf -y install \
-    	gnupg2-scdaemon \
-    	pass \
-    	just \
-    	pre-commit \
-    	cloc
+        gnupg2-scdaemon \
+        pass \
+        just \
+        pre-commit \
+        cloc
 }
 
 merge_dotfiles
