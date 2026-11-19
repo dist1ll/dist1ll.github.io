@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Merge missing dotfiles into $HOME, then set up Fedora.
+# Preview and replace tracked dotfiles in $HOME, then set up Fedora.
 # Run as the intended user, without sudo; system changes use sudo.
 set -euo pipefail
 
@@ -19,48 +19,111 @@ if [[ -z "${HOME:-}" || "$HOME" != /* || ! -d "$HOME" ]]; then
     exit 1
 fi
 
-# Step 1: Add missing dotfiles while preserving local configuration.
-merge_dotfiles() (
-    printf '%s\n' 'Step 1/2: merge dotfiles.'
-    # Bootstrap the tools needed for the merge on a fresh Fedora install.
+dotfile_destination_ok() {
+    local relative_path=$1 parent=$1
+    local destination="$HOME/$relative_path"
+
+    while [[ "$parent" == */* ]]; do
+        parent=${parent%/*}
+        if [[ -L "$HOME/$parent" || ( -e "$HOME/$parent" && ! -d "$HOME/$parent" ) ]]; then
+            printf '  !  %q (parent %q is a file or symlink)\n' "$relative_path" "$parent"
+            return 1
+        fi
+    done
+    if [[ -e "$destination" && ! -f "$destination" && ! -L "$destination" ]]; then
+        printf '  !  %q (destination is a directory or special file)\n' "$relative_path"
+        return 1
+    fi
+}
+
+dotfiles_match() {
+    if [[ -L "$1" || -L "$2" ]]; then
+        [[ -L "$1" && -L "$2" ]] || return 1
+        local source_link destination_link
+        # A suffix keeps command substitution from stripping trailing newlines.
+        source_link=$(readlink -n -- "$1" && printf '.') || return 1
+        destination_link=$(readlink -n -- "$2" && printf '.') || return 1
+        [[ "$source_link" == "$destination_link" ]]
+    else
+        git diff --no-index --no-ext-diff --no-textconv --quiet -- "$1" "$2"
+    fi
+}
+
+# Step 1: Replace tracked dotfiles after confirmation.
+replace_dotfiles() (
+    # If stdin contains the installer, read the answer from the terminal.
+    if [[ $- == *s* || ${BASH_SOURCE[0]:-} -ef /dev/stdin ]]; then
+        if ! { exec </dev/tty; } 2>/dev/null; then
+            printf '%s\n' 'A terminal is required when piping the installer into Bash. Aborting.' >&2
+            return 1
+        fi
+    fi
+
+    printf '%s\n' 'Step 1/2: replace dotfiles.'
     if ! command -v git >/dev/null 2>&1; then
         sudo dnf -y install git
     fi
 
     install_tmp=$(mktemp -d)
-    trap 'rm -rf -- "$install_tmp"' EXIT
+    staging=
+    trap 'rm -rf -- "$install_tmp" ${staging:+"$staging"}' EXIT
 
-    git clone --quiet --depth 1 --branch main https://github.com/dist1ll/dotfiles.git "$install_tmp/repo"
+    dotfiles_repo="$install_tmp/repo"
+    git clone --quiet --depth 1 --branch main https://github.com/dist1ll/dotfiles.git "$dotfiles_repo"
 
     # Git's file list includes dotfiles and excludes the clone's Git metadata.
-    git -C "$install_tmp/repo" ls-files -z |
+    git -C "$dotfiles_repo" ls-files -z > "$install_tmp/tracked"
+    printf '%s\n' 'Dotfile changes (A = add, M = replace, ! = skip)'
+    paths=()
+    actions=()
     while IFS= read -r -d '' relative_path; do
+        source="$dotfiles_repo/$relative_path"
         destination="$HOME/$relative_path"
-        if [[ "$relative_path" != .bashrc.d/10-managed.sh &&
-              ( -e "$destination" || -L "$destination" ) ]]; then
+        if [[ ! -f "$source" && ! -L "$source" ]]; then
+            printf '  !  %q (tracked entry is not a file or symlink)\n' "$relative_path"
             continue
         fi
-        if [[ -d "$destination" && ! -L "$destination" ]]; then
+        dotfile_destination_ok "$relative_path" || continue
+        if [[ ! -e "$destination" && ! -L "$destination" ]]; then
+            action=A
+        elif dotfiles_match "$source" "$destination"; then
             continue
-        fi
-
-        # Skip a whole subtree when an existing parent is a file or symlink.
-        parent=$relative_path
-        while [[ "$parent" == */* ]]; do
-            parent=${parent%/*}
-            if [[ -L "$HOME/$parent" || ( -e "$HOME/$parent" && ! -d "$HOME/$parent" ) ]]; then
-                printf 'Skipping %s: existing parent %s is a file or symlink.\n' "$relative_path" "$parent" >&2
-                continue 2
-            fi
-        done
-        mkdir -p -- "${destination%/*}"
-        # Only the managed Bash fragment may replace an existing file.
-        if [[ "$relative_path" == .bashrc.d/10-managed.sh ]]; then
-            cp --remove-destination -PT -- "$install_tmp/repo/$relative_path" "$destination"
         else
-            cp --update=none -PT -- "$install_tmp/repo/$relative_path" "$destination"
+            action=M
         fi
+        printf '  %s  %q\n' "$action" "$relative_path"
+        paths+=("$relative_path")
+        actions+=("$action")
+    done < "$install_tmp/tracked"
+
+    if (( ${#paths[@]} == 0 )); then
+        printf '%s\n' 'No dotfile changes to apply.'
+        return
+    fi
+    printf '%s' 'Apply these dotfile changes? [y/N] '
+    if ! IFS= read -r confirmation || [[ "$confirmation" != [yY] ]]; then
+        printf '%s\n' 'Dotfile changes were not confirmed. Aborting installation.' >&2
+        return 1
+    fi
+
+    for index in "${!paths[@]}"; do
+        relative_path=${paths[index]}
+        dotfile_destination_ok "$relative_path" || continue
+        destination="$HOME/$relative_path"
+        parent=${destination%/*}
+        mkdir -p -- "$parent"
+        # Stage beside the destination so a failed copy cannot remove the old file.
+        staging=$(mktemp -d -- "$parent/.dotfiles.XXXXXX")
+        cp -PT -- "$dotfiles_repo/$relative_path" "$staging/file"
+        if [[ "${actions[index]}" == A ]]; then
+            mv -T --update=none-fail -- "$staging/file" "$destination"
+        else
+            mv -fT -- "$staging/file" "$destination"
+        fi
+        rmdir -- "$staging"
+        staging=
     done
+    printf '%s\n' 'Dotfile changes applied.'
 )
 
 download_verified() {
@@ -279,5 +342,5 @@ install_fedora() {
         cloc
 }
 
-merge_dotfiles
+replace_dotfiles
 install_fedora
